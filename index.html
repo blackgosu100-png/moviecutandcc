@@ -170,6 +170,7 @@
         <button id="setEndBtn" style="font-size:11px;padding:4px 7px">현재 위치</button>
       </div>
       <div class="hint">중국 로고가 나오는 앞·뒤 부분은 시작/끝 시간을 조절해서 잘라내세요.</div>
+      <div class="hint" id="outLen" style="color:#7ee087; font-size:12px; margin-top:6px"></div>
     </div>
 
     <div class="section">
@@ -217,6 +218,7 @@ function loadFile(file) {
     $('trimEnd').max = $('trimStart').max = vid.duration.toFixed(1);
     vid.currentTime = 0;
     updateTime();
+    updateOutLen();
   };
 }
 $('openBtn').onclick = () => $('fileInput').click();
@@ -227,22 +229,42 @@ document.addEventListener('drop', e => { e.preventDefault(); loadFile(e.dataTran
 
 /* ---------- 재생 컨트롤 ---------- */
 function fmt(t) { t = Math.max(0, t|0); return Math.floor(t/60) + ':' + String(t%60).padStart(2,'0'); }
+function curSpeed() { return parseFloat($('speedSel').value) || 1; }
 function updateTime() {
   if (!vid.duration) return;
-  $('timeLabel').textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration);
+  const sp = curSpeed();
+  let label = fmt(vid.currentTime / sp) + ' / ' + fmt(vid.duration / sp);
+  if (sp !== 1) label += ' (' + sp + '배속)';
+  $('timeLabel').textContent = label;
   if (!seeking) $('seek').value = (vid.currentTime / vid.duration) * 1000;
 }
 let seeking = false;
 $('seek').oninput = e => { seeking = true; if (vid.duration) vid.currentTime = (e.target.value/1000) * vid.duration; };
 $('seek').onchange = () => seeking = false;
 $('playBtn').onclick = () => {
-  if (vid.paused) { vid.playbackRate = 1; vid.muted = false; vid.play(); $('playBtn').textContent = '⏸ 멈춤'; }
+  if (vid.paused) { vid.playbackRate = curSpeed(); vid.muted = $('muteChk').checked; vid.play(); $('playBtn').textContent = '⏸ 멈춤'; }
   else { vid.pause(); $('playBtn').textContent = '▶ 재생'; }
 };
 vid.addEventListener('pause', () => { if(!exporting) $('playBtn').textContent = '▶ 재생'; });
 vid.addEventListener('timeupdate', updateTime);
-$('setStartBtn').onclick = () => $('trimStart').value = vid.currentTime.toFixed(1);
-$('setEndBtn').onclick = () => $('trimEnd').value = vid.currentTime.toFixed(1);
+$('setStartBtn').onclick = () => { $('trimStart').value = vid.currentTime.toFixed(1); updateOutLen(); };
+$('setEndBtn').onclick = () => { $('trimEnd').value = vid.currentTime.toFixed(1); updateOutLen(); };
+
+/* 배속을 바꾸면 재생 중인 미리보기에도 즉시 적용 */
+$('speedSel').onchange = () => {
+  if (!exporting) vid.playbackRate = curSpeed();
+  updateTime(); updateOutLen();
+};
+$('muteChk').onchange = () => { if (!exporting) vid.muted = $('muteChk').checked; };
+$('trimStart').oninput = updateOutLen;
+$('trimEnd').oninput = updateOutLen;
+function updateOutLen() {
+  if (!vid.duration) { $('outLen').textContent = ''; return; }
+  const s = Math.max(0, parseFloat($('trimStart').value) || 0);
+  const e = Math.min(vid.duration, parseFloat($('trimEnd').value) || vid.duration);
+  if (e <= s) { $('outLen').textContent = '⚠ 끝 시간이 시작 시간보다 커야 합니다'; return; }
+  $('outLen').textContent = '✅ 완성 영상 길이: 약 ' + ((e - s) / curSpeed()).toFixed(1) + '초';
+}
 
 /* ---------- 그리기 루프 ---------- */
 function drawTextObj(o, withSel) {
@@ -508,7 +530,7 @@ $('exportBtn').onclick = async () => {
     a.click();
     $('exportOverlay').classList.remove('on');
     exporting = false;
-    vid.muted = false;
+    vid.muted = $('muteChk').checked;
     if (ext === 'webm') {
       alert('저장 완료! (webm 형식)\n쿠팡 업로드에 mp4가 필요하면 크롬 최신 버전을 사용하면 mp4로 저장됩니다.');
     }
