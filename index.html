@@ -129,13 +129,22 @@
       <h2>2단계. 중국어 가리기 / 글자 넣기</h2>
       <div class="row">
         <button class="toolBtn active" data-tool="select">↖ 선택</button>
-        <button class="toolBtn" data-tool="rect">⬛ 네모 가리개</button>
+        <button class="toolBtn" data-tool="rect">⬛ 가리개</button>
         <button class="toolBtn" data-tool="text">가 텍스트</button>
+        <select id="shapeSel" title="가리개 모양">
+          <option value="rect">⬛ 네모</option>
+          <option value="round">▢ 둥근네모</option>
+          <option value="ellipse">⚫ 원형</option>
+          <option value="mosaic">🔲 모자이크</option>
+        </select>
       </div>
+      <div class="row" id="emojiRow" style="gap:3px"></div>
       <div class="hint">
-        · <b>네모 가리개</b>: 영상 위에서 마우스로 드래그하면 네모가 그려집니다.<br>
+        · <b>가리개</b>: 모양을 고르고 중국어 부분을 드래그하면 가려집니다.<br>
+        &nbsp;&nbsp;<b>모자이크</b>를 고르면 흐림 처리로 자연스럽게 가려집니다.<br>
         · <b>텍스트</b>: 영상 위 원하는 위치를 클릭하면 글자가 추가됩니다.<br>
-        · <b>선택</b>: 클릭해서 옮기고, 네모는 오른쪽 아래 모서리를 잡아 크기 조절.
+        · <b>이모티콘</b>: 위 그림을 누르면 영상에 추가됩니다. (글자처럼 이동/크기조절)<br>
+        · <b>선택</b>: 클릭해서 옮기고, 오른쪽 아래 모서리를 잡아 크기 조절.
       </div>
       <div id="propBox" style="display:none; margin-top:8px"></div>
       <div style="margin-top:8px">
@@ -148,7 +157,7 @@
     </div>
 
     <div class="section">
-      <h2>3단계. 배속 / 구간 자르기</h2>
+      <h2>3단계. 배속 / 자르기 / 배경음악</h2>
       <div class="row">
         <label>배속</label>
         <select id="speedSel">
@@ -171,6 +180,16 @@
       </div>
       <div class="hint">중국 로고가 나오는 앞·뒤 부분은 시작/끝 시간을 조절해서 잘라내세요.</div>
       <div class="hint" id="outLen" style="color:#7ee087; font-size:12px; margin-top:6px"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="bgmBtn">🎵 배경음악 넣기</button>
+        <input type="file" id="bgmInput" accept="audio/*" hidden>
+        <button id="bgmDelBtn" class="danger" style="display:none" title="배경음악 제거">✕</button>
+      </div>
+      <div class="row" id="bgmVolRow" style="display:none">
+        <label id="bgmName" style="width:100%; color:#7ee087"></label>
+        <label>음량</label><input type="range" id="bgmVol" min="0" max="100" value="50" style="flex:1">
+      </div>
+      <div class="hint">mp3 등 음악 파일을 넣으면 완성 영상에 함께 저장됩니다. 음악이 짧으면 자동 반복되고, "소리 제거"를 체크하면 원본 중국어 소리는 빠지고 음악만 들어갑니다.</div>
     </div>
 
     <div class="section">
@@ -242,10 +261,14 @@ let seeking = false;
 $('seek').oninput = e => { seeking = true; if (vid.duration) vid.currentTime = (e.target.value/1000) * vid.duration; };
 $('seek').onchange = () => seeking = false;
 $('playBtn').onclick = () => {
-  if (vid.paused) { vid.playbackRate = curSpeed(); vid.muted = $('muteChk').checked; vid.play(); $('playBtn').textContent = '⏸ 멈춤'; }
+  if (vid.paused) {
+    vid.playbackRate = curSpeed(); vid.muted = $('muteChk').checked; vid.play();
+    if (bgmLoaded) { ensureAudioGraph(); ac.resume(); bgm.play(); }
+    $('playBtn').textContent = '⏸ 멈춤';
+  }
   else { vid.pause(); $('playBtn').textContent = '▶ 재생'; }
 };
-vid.addEventListener('pause', () => { if(!exporting) $('playBtn').textContent = '▶ 재생'; });
+vid.addEventListener('pause', () => { if(!exporting) { $('playBtn').textContent = '▶ 재생'; bgm.pause(); } });
 vid.addEventListener('timeupdate', updateTime);
 $('setStartBtn').onclick = () => { $('trimStart').value = vid.currentTime.toFixed(1); updateOutLen(); };
 $('setEndBtn').onclick = () => { $('trimEnd').value = vid.currentTime.toFixed(1); updateOutLen(); };
@@ -266,9 +289,48 @@ function updateOutLen() {
   $('outLen').textContent = '✅ 완성 영상 길이: 약 ' + ((e - s) / curSpeed()).toFixed(1) + '초';
 }
 
+/* ---------- 배경음악 ---------- */
+const bgm = new Audio(); bgm.loop = true;
+let bgmLoaded = false, ac = null, bgmGain = null;
+function ensureAudioGraph() {
+  if (ac) return;
+  ac = new AudioContext();
+  const src = ac.createMediaElementSource(bgm);
+  bgmGain = ac.createGain();
+  src.connect(bgmGain);
+  bgmGain.connect(ac.destination);
+}
+$('bgmBtn').onclick = () => $('bgmInput').click();
+$('bgmInput').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  bgm.src = URL.createObjectURL(f);
+  bgm.volume = $('bgmVol').value / 100;
+  bgmLoaded = true;
+  ensureAudioGraph();
+  $('bgmName').textContent = '🎵 ' + f.name;
+  $('bgmVolRow').style.display = 'flex';
+  $('bgmDelBtn').style.display = 'inline-block';
+};
+$('bgmDelBtn').onclick = () => {
+  bgm.pause(); bgm.removeAttribute('src'); bgmLoaded = false;
+  $('bgmVolRow').style.display = 'none';
+  $('bgmDelBtn').style.display = 'none';
+  $('bgmInput').value = '';
+};
+$('bgmVol').oninput = e => bgm.volume = e.target.value / 100;
+
 /* ---------- 그리기 루프 ---------- */
+const FONTS = [
+  ['"Malgun Gothic","Apple SD Gothic Neo",sans-serif', '맑은 고딕 (기본)'],
+  ['Gulim,"Apple SD Gothic Neo",sans-serif', '굴림'],
+  ['Dotum,"Apple SD Gothic Neo",sans-serif', '돋움'],
+  ['Batang,"AppleMyungjo",serif', '바탕 (명조체)'],
+  ['Gungsuh,"GungSeo",Batang,serif', '궁서 (붓글씨)'],
+  ['Impact,"Arial Black",sans-serif', 'Impact (영문/숫자)'],
+  ['"Comic Sans MS","Apple SD Gothic Neo",cursive', 'Comic Sans (영문)'],
+];
 function drawTextObj(o, withSel) {
-  ctx.font = (o.bold ? 'bold ' : '') + o.size + 'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+  ctx.font = (o.bold ? 'bold ' : '') + o.size + 'px ' + (o.font || FONTS[0][0]);
   ctx.textBaseline = 'top';
   const lines = o.text.split('\n');
   const lh = o.size * 1.25;
@@ -290,13 +352,45 @@ function selBox(x, y, w, h) {
   ctx.restore();
 }
 let tempRect = null;
+const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
+function drawMosaic(o) {
+  const pix = Math.max(6, Math.round(Math.min(o.w, o.h) / 7));
+  const sw = Math.max(1, Math.round(o.w / pix)), sh = Math.max(1, Math.round(o.h / pix));
+  mcv.width = sw; mcv.height = sh;
+  try { mctx.drawImage(vid, o.x, o.y, o.w, o.h, 0, 0, sw, sh); } catch(e) { return; }
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(mcv, 0, 0, sw, sh, o.x, o.y, o.w, o.h);
+  ctx.imageSmoothingEnabled = true;
+}
+function drawShape(o) {
+  if (o.shape === 'mosaic') { drawMosaic(o); return; }
+  ctx.fillStyle = o.color;
+  if (o.shape === 'ellipse') {
+    ctx.beginPath();
+    ctx.ellipse(o.x + o.w/2, o.y + o.h/2, o.w/2, o.h/2, 0, 0, Math.PI*2);
+    ctx.fill();
+  } else if (o.shape === 'round') {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(o.x, o.y, o.w, o.h, Math.min(o.w, o.h) * .2);
+    else ctx.rect(o.x, o.y, o.w, o.h);
+    ctx.fill();
+  } else {
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+  }
+}
+function visibleNow(o) {
+  return o.t0 == null || (vid.currentTime >= o.t0 - 0.02 && vid.currentTime <= o.t1 + 0.02);
+}
 function render() {
   if (vid.readyState >= 2) ctx.drawImage(vid, 0, 0, cv.width, cv.height);
   for (const o of objects) {
     const isSel = !exporting && o === selected;
+    if (!visibleNow(o)) {
+      if (exporting || !isSel) continue;
+      ctx.globalAlpha = .3;   // 표시 구간 밖이어도 선택 중이면 흐리게 보여줌
+    }
     if (o.type === 'rect') {
-      ctx.fillStyle = o.color;
-      ctx.fillRect(o.x, o.y, o.w, o.h);
+      drawShape(o);
       if (isSel) {
         selBox(o.x, o.y, o.w, o.h);
         const hs = handleSize();
@@ -306,11 +400,11 @@ function render() {
     } else {
       drawTextObj(o, isSel);
     }
+    ctx.globalAlpha = 1;
   }
   if (tempRect) {
-    ctx.fillStyle = $('newRectColor') ? $('newRectColor').value : '#ffffff';
     ctx.globalAlpha = .7;
-    ctx.fillRect(tempRect.x, tempRect.y, tempRect.w, tempRect.h);
+    drawShape({ ...tempRect, shape: $('shapeSel').value, color: '#ffffff' });
     ctx.globalAlpha = 1;
   }
   requestAnimationFrame(render);
@@ -323,6 +417,24 @@ document.querySelectorAll('.toolBtn').forEach(b => b.onclick = () => {
   tool = b.dataset.tool;
   document.querySelectorAll('.toolBtn').forEach(x => x.classList.toggle('active', x === b));
   cv.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+});
+$('shapeSel').onchange = () => setTool('rect');
+
+/* ---------- 이모티콘 빠른 추가 ---------- */
+const EMOJIS = ['🔥','💯','✨','⭐','👍','✅','❗','⚡','💰','🎁','🚚','📦','😍','🤩','🏆','💝'];
+EMOJIS.forEach(em => {
+  const b = document.createElement('button');
+  b.textContent = em;
+  b.style.cssText = 'padding:4px 6px; font-size:16px';
+  b.title = '영상에 ' + em + ' 추가';
+  b.onclick = () => {
+    if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+    const size = Math.round(cv.width / 8);
+    const o = { type:'text', x: cv.width/2 - size/2, y: cv.height/2 - size/2,
+                text: em, size, color:'#ffffff', bold:false, bg:false, bgColor:'#000000', font: FONTS[0][0] };
+    objects.push(o); select(o); setTool('select');
+  };
+  $('emojiRow').appendChild(b);
 });
 
 /* ---------- 마우스 좌표 변환 ---------- */
@@ -366,7 +478,7 @@ cv.addEventListener('pointerdown', e => {
   }
   if (tool === 'text') {
     const size = Math.max(24, Math.round(cv.width / 18));
-    const o = { type:'text', x:p.x, y:p.y, text:'한글 문구 입력', size, color:'#ffffff', bold:true, bg:true, bgColor:'#000000' };
+    const o = { type:'text', x:p.x, y:p.y, text:'한글 문구 입력', size, color:'#ffffff', bold:true, bg:true, bgColor:'#000000', font: FONTS[0][0] };
     objects.push(o); select(o);
     setTool('select');
     return;
@@ -400,7 +512,7 @@ cv.addEventListener('pointermove', e => {
 cv.addEventListener('pointerup', () => {
   if (tempRect) {
     if (tempRect.w > 8 && tempRect.h > 8) {
-      const o = { type:'rect', x:tempRect.x, y:tempRect.y, w:tempRect.w, h:tempRect.h, color:'#ffffff' };
+      const o = { type:'rect', shape: $('shapeSel').value, x:tempRect.x, y:tempRect.y, w:tempRect.w, h:tempRect.h, color:'#ffffff' };
       objects.push(o); select(o);
       setTool('select');
     }
@@ -426,7 +538,7 @@ function refreshList() {
   objects.forEach((o, i) => {
     const d = document.createElement('div');
     d.className = 'objItem' + (o === selected ? ' sel' : '');
-    d.innerHTML = (o.type === 'rect' ? '⬛ 네모 가리개 ' + (i+1)
+    d.innerHTML = (o.type === 'rect' ? SHAPE_NAMES[o.shape || 'rect'] + ' 가리개 ' + (i+1)
                   : '가 ' + (o.text.length > 10 ? o.text.slice(0,10) + '…' : o.text))
                   + '<span class="del" title="삭제">✕</span>';
     d.onclick = ev => {
@@ -443,38 +555,87 @@ function refreshList() {
 $('clearObjs').onclick = () => {
   if (objects.length && confirm('네모와 텍스트를 모두 삭제할까요?')) { objects = []; select(null); }
 };
+function timeRangeHTML(o) {
+  const on = o.t0 != null;
+  const t1def = (o.t1 ?? vid.duration ?? 0);
+  return `
+    <div class="row" style="margin-top:8px; border-top:1px solid #2e3850; padding-top:8px">
+      <label><input type="checkbox" id="pTimed" ${on?'checked':''}> ⏱ 특정 구간에만 표시</label>
+    </div>
+    <div id="pTimeRow" style="display:${on?'block':'none'}">
+      <div class="row">
+        <input type="number" id="pT0" value="${(o.t0??0).toFixed ? (o.t0??0).toFixed(1) : 0}" step="0.1" min="0" style="width:58px">초 ~
+        <input type="number" id="pT1" value="${t1def.toFixed ? t1def.toFixed(1) : t1def}" step="0.1" min="0" style="width:58px">초
+      </div>
+      <div class="row">
+        <button id="pT0Now" style="font-size:11px;padding:3px 6px">시작=현재 위치</button>
+        <button id="pT1Now" style="font-size:11px;padding:3px 6px">끝=현재 위치</button>
+      </div>
+      <div class="hint">중국어 자막이 나오는 구간에서 멈춘 뒤 버튼을 누르면 그 시간이 입력됩니다. 구간 밖에서는 자동으로 사라집니다.</div>
+    </div>`;
+}
+function wireTimeRange(o) {
+  $('pTimed').onchange = e => {
+    if (e.target.checked) {
+      o.t0 = parseFloat($('pT0').value) || 0;
+      o.t1 = parseFloat($('pT1').value) || vid.duration || 0;
+      $('pTimeRow').style.display = 'block';
+    } else { o.t0 = o.t1 = null; $('pTimeRow').style.display = 'none'; }
+  };
+  $('pT0').oninput = e => o.t0 = parseFloat(e.target.value) || 0;
+  $('pT1').oninput = e => o.t1 = parseFloat(e.target.value) || 0;
+  $('pT0Now').onclick = () => { $('pT0').value = vid.currentTime.toFixed(1); o.t0 = +$('pT0').value; };
+  $('pT1Now').onclick = () => { $('pT1').value = vid.currentTime.toFixed(1); o.t1 = +$('pT1').value; };
+}
+const SHAPE_NAMES = { rect:'⬛ 네모', round:'▢ 둥근네모', ellipse:'⚫ 원형', mosaic:'🔲 모자이크' };
 function refreshProps() {
   const box = $('propBox');
   if (!selected) { box.style.display = 'none'; return; }
   box.style.display = 'block';
   if (selected.type === 'rect') {
+    const isMosaic = selected.shape === 'mosaic';
     box.innerHTML = `
-      <div class="row"><label>네모 색</label>
+      <div class="row"><label>모양</label>
+        <select id="pShape">${Object.entries(SHAPE_NAMES).map(([v,n]) =>
+          `<option value="${v}" ${v===(selected.shape||'rect')?'selected':''}>${n}</option>`).join('')}</select>
+      </div>
+      <div class="row" id="pColorRow" style="display:${isMosaic?'none':'flex'}"><label>색상</label>
         <input type="color" id="pColor" value="${selected.color}">
         <button id="pickBtn" style="font-size:11px;padding:4px 7px" title="영상의 배경색을 클릭해서 그대로 가져옵니다">💧 배경색 추출</button>
       </div>
-      <div class="hint">💧 배경색 추출을 누른 뒤 영상에서 가리고 싶은 부분 <b>주변 배경</b>을 클릭하면 똑같은 색으로 자연스럽게 가려집니다.</div>`;
+      <div class="hint" id="pRectHint">${isMosaic
+        ? '모자이크는 영상 화면을 흐림 처리하므로 색상이 필요 없습니다.'
+        : '💧 배경색 추출을 누른 뒤 영상에서 가리고 싶은 부분 <b>주변 배경</b>을 클릭하면 똑같은 색으로 자연스럽게 가려집니다.'}</div>
+      ${timeRangeHTML(selected)}`;
+    $('pShape').onchange = e => { selected.shape = e.target.value; refreshProps(); refreshList(); };
     $('pColor').oninput = e => selected.color = e.target.value;
     $('pickBtn').onclick = () => { pickingColor = true; cv.style.cursor = 'copy'; };
   } else {
     box.innerHTML = `
       <textarea id="pText" rows="2">${selected.text}</textarea>
-      <div class="row" style="margin-top:6px"><label>크기</label>
-        <input type="number" id="pSize" value="${selected.size}" min="10" max="300">
+      <div class="row" style="margin-top:6px"><label>글씨체</label>
+        <select id="pFont" style="max-width:170px">${FONTS.map(([v,n]) =>
+          `<option value='${v}' ${v===(selected.font||FONTS[0][0])?'selected':''}>${n}</option>`).join('')}</select>
+      </div>
+      <div class="row"><label>크기</label>
+        <input type="number" id="pSize" value="${selected.size}" min="10" max="500">
         <label>글자색</label><input type="color" id="pTColor" value="${selected.color}">
       </div>
       <div class="row">
         <label><input type="checkbox" id="pBold" ${selected.bold?'checked':''}> 굵게</label>
         <label><input type="checkbox" id="pBg" ${selected.bg?'checked':''}> 배경상자</label>
         <input type="color" id="pBgColor" value="${selected.bgColor}">
-      </div>`;
+      </div>
+      ${timeRangeHTML(selected)}`;
     $('pText').oninput = e => { selected.text = e.target.value; refreshList(); };
+    $('pFont').onchange = e => selected.font = e.target.value;
     $('pSize').oninput = e => selected.size = +e.target.value || 20;
     $('pTColor').oninput = e => selected.color = e.target.value;
     $('pBold').onchange = e => selected.bold = e.target.checked;
     $('pBg').onchange = e => selected.bg = e.target.checked;
     $('pBgColor').oninput = e => selected.bgColor = e.target.value;
   }
+  wireTimeRange(selected);
 }
 
 /* ---------- 내보내기 ---------- */
@@ -509,11 +670,24 @@ $('exportBtn').onclick = async () => {
   await new Promise(r => vid.onseeked = () => { vid.onseeked = null; r(); });
 
   const stream = cv.captureStream(30);
-  if (!mute) {
-    try {
-      const vs = vid.captureStream ? vid.captureStream() : vid.mozCaptureStream();
-      vs.getAudioTracks().forEach(t => stream.addTrack(t));
-    } catch (e) { /* 오디오 캡처 미지원 시 무음으로 저장 */ }
+  let exportDest = null, vidSrcNode = null;
+  if (!mute || bgmLoaded) {
+    ensureAudioGraph();
+    await ac.resume();
+    exportDest = ac.createMediaStreamDestination();
+    if (bgmLoaded) bgmGain.connect(exportDest);
+    if (!mute) {
+      try {
+        const vs = vid.captureStream ? vid.captureStream() : vid.mozCaptureStream();
+        const at = vs.getAudioTracks();
+        if (at.length) {
+          vidSrcNode = ac.createMediaStreamSource(new MediaStream([at[0]]));
+          vidSrcNode.connect(exportDest);
+        }
+      } catch (e) { /* 원본 오디오 캡처 미지원 시 배경음악만 저장 */ }
+    }
+    const atracks = exportDest.stream.getAudioTracks();
+    if (atracks.length) stream.addTrack(atracks[0]);
   }
   vid.muted = mute;
   vid.volume = mute ? 0 : 1;
@@ -522,6 +696,9 @@ $('exportBtn').onclick = async () => {
   const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
   rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
+    bgm.pause();
+    try { if (exportDest && bgmGain) bgmGain.disconnect(exportDest); } catch (e) {}
+    try { if (vidSrcNode) vidSrcNode.disconnect(); } catch (e) {}
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
     const blob = new Blob(chunks, { type: mime.split(';')[0] });
     const a = document.createElement('a');
@@ -551,6 +728,7 @@ $('exportBtn').onclick = async () => {
 
   rec.start(250);
   vid.playbackRate = speed;
+  if (bgmLoaded) { bgm.currentTime = 0; bgm.play(); }
   await vid.play();
   tick();
 };
