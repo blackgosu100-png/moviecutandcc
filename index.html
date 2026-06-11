@@ -115,6 +115,60 @@
   .statusOk { color: #7ee087; }
   .statusWarn { color: #ffb648; }
 
+  /* 타임라인 (컷편집 바) */
+  #timeline {
+    display: none; background: #10141f; border-top: 1px solid #2e3850;
+    padding: 6px 12px 10px; user-select: none; flex-shrink: 0;
+  }
+  #timeline.on { display: block; }
+  #tlHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  #tlHeader .hint { margin-top: 0; }
+  #tlBody { display: flex; gap: 8px; }
+  .tlLabels { display: flex; flex-direction: column; flex-shrink: 0; }
+  .tlLabels .spacer { height: 18px; margin-bottom: 4px; }
+  .tlLabel {
+    height: 26px; margin-bottom: 4px; font-size: 11px; color: #8a93a8;
+    width: 38px; display: flex; align-items: center; justify-content: flex-end;
+  }
+  #tlTracks { position: relative; flex: 1; min-width: 0; }
+  #tlRuler {
+    height: 18px; margin-bottom: 4px; position: relative; background: #161c2a;
+    border-radius: 4px; cursor: pointer; overflow: hidden;
+  }
+  .tlTick {
+    position: absolute; top: 0; height: 100%; font-size: 9px; color: #6d7891;
+    border-left: 1px solid #2e3850; padding-left: 3px; pointer-events: none;
+  }
+  .tlTrack {
+    height: 26px; margin-bottom: 4px; position: relative; background: #161c2a;
+    border-radius: 4px;
+  }
+  .clip {
+    position: absolute; top: 2px; bottom: 2px; border-radius: 4px; font-size: 10px;
+    color: #fff; overflow: hidden; white-space: nowrap; padding: 0 6px;
+    line-height: 22px; cursor: grab; min-width: 6px;
+  }
+  .clip.video { background: #2e7d4f; cursor: pointer; }
+  .clip.video:hover { background: #389660; }
+  .clip.video.removed { background: #46222e; color: #b97f7f; }
+  .clip.audio { background: #6a55b0; cursor: pointer; }
+  .clip.audio.off { background: #3a3650; color: #8a93a8; }
+  .clip.sub { background: #c77b00; }
+  .clip.shape { background: #3d6fb4; }
+  .clip.sel { outline: 2px solid #fff; z-index: 2; }
+  .clip .edge { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+  .clip .edgeL { left: 0; border-radius: 4px 0 0 4px; }
+  .clip .edgeR { right: 0; border-radius: 0 4px 4px 0; }
+  .clip .edge:hover { background: rgba(255,255,255,.35); }
+  #playhead {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: #ff5b5b;
+    pointer-events: none; z-index: 5;
+  }
+  #playhead::before {
+    content: ''; position: absolute; top: 0; left: -4px;
+    border: 5px solid transparent; border-top-color: #ff5b5b;
+  }
+
   /* 내보내기 오버레이 */
   #exportOverlay {
     position: fixed; inset: 0; background: rgba(10,14,22,.92); display: none;
@@ -327,6 +381,34 @@
   </aside>
 </main>
 
+<div id="timeline">
+  <div id="tlHeader">
+    <button id="splitBtn">✂ 현재 위치에서 자르기</button>
+    <span class="hint">
+      <b style="color:#7ee087">영상 조각 클릭 = 삭제/복원</b> ·
+      자막/모양 막대는 끌어서 시간 이동, 양끝을 끌어 길이 조절 ·
+      막대 클릭 = 선택(오른쪽에서 내용 수정)
+    </span>
+  </div>
+  <div id="tlBody">
+    <div class="tlLabels">
+      <div class="spacer"></div>
+      <div class="tlLabel">영상</div>
+      <div class="tlLabel">음성</div>
+      <div class="tlLabel">자막</div>
+      <div class="tlLabel">모양</div>
+    </div>
+    <div id="tlTracks">
+      <div id="tlRuler"></div>
+      <div class="tlTrack" id="trackVideo"></div>
+      <div class="tlTrack" id="trackAudio"></div>
+      <div class="tlTrack" id="trackSub"></div>
+      <div class="tlTrack" id="trackShape"></div>
+      <div id="playhead"></div>
+    </div>
+  </div>
+</div>
+
 <div id="exportOverlay">
   <div class="big">영상을 만드는 중입니다...</div>
   <div id="exportBar"><div id="exportFill"></div></div>
@@ -369,9 +451,11 @@ function loadFile(file, opts = {}) {
       $('trimStart').value = 0;
       $('trimEnd').value = vid.duration.toFixed(1);
       vid.currentTime = 0;
+      cutPoints = []; removedRanges = [];
     }
     updateTime();
     updateOutLen();
+    rebuildTimeline();
   };
 }
 $('openBtn').onclick = () => $('fileInput').click();
@@ -418,6 +502,8 @@ function controlState() {
     mute: $('muteChk').checked,
     bgmVol: $('bgmVol').value,
     bgmSelectedId,
+    cutPoints: cutPoints.slice(),
+    removedRanges: JSON.parse(JSON.stringify(removedRanges)),
     subStyle: out
   };
 }
@@ -449,6 +535,8 @@ async function restoreEditorState(state) {
   $('speedSel').value = c.speed ?? $('speedSel').value;
   $('muteChk').checked = c.mute ?? $('muteChk').checked;
   $('bgmVol').value = c.bgmVol ?? $('bgmVol').value;
+  cutPoints = Array.isArray(c.cutPoints) ? c.cutPoints.slice() : [];
+  removedRanges = Array.isArray(c.removedRanges) ? JSON.parse(JSON.stringify(c.removedRanges)) : [];
   Object.entries(c.subStyle || {}).forEach(([id, val]) => setControlValue(id, val));
   syncPadInputs('ssPadX');
   syncPadInputs('ssPadY');
@@ -530,23 +618,30 @@ $('playBtn').onclick = () => {
 };
 vid.addEventListener('pause', () => { if(!exporting) { $('playBtn').textContent = '▶ 재생'; bgm.pause(); } });
 vid.addEventListener('timeupdate', updateTime);
-$('setStartBtn').onclick = () => { $('trimStart').value = vid.currentTime.toFixed(1); updateOutLen(); };
-$('setEndBtn').onclick = () => { $('trimEnd').value = vid.currentTime.toFixed(1); updateOutLen(); };
+$('setStartBtn').onclick = () => { $('trimStart').value = vid.currentTime.toFixed(1); updateOutLen(); rebuildTimeline(); };
+$('setEndBtn').onclick = () => { $('trimEnd').value = vid.currentTime.toFixed(1); updateOutLen(); rebuildTimeline(); };
 
 /* 배속을 바꾸면 재생 중인 미리보기에도 즉시 적용 */
 $('speedSel').onchange = () => {
   if (!exporting) vid.playbackRate = curSpeed();
   updateTime(); updateOutLen();
 };
-$('muteChk').onchange = () => { if (!exporting) vid.muted = $('muteChk').checked; };
-$('trimStart').oninput = updateOutLen;
-$('trimEnd').oninput = updateOutLen;
+$('muteChk').onchange = () => {
+  if (!exporting) vid.muted = $('muteChk').checked;
+  rebuildTimeline();
+};
+$('trimStart').oninput = () => { updateOutLen(); rebuildTimeline(); };
+$('trimEnd').oninput = () => { updateOutLen(); rebuildTimeline(); };
 function updateOutLen() {
   if (!vid.duration) { $('outLen').textContent = ''; return; }
   const s = Math.max(0, parseFloat($('trimStart').value) || 0);
   const e = Math.min(vid.duration, parseFloat($('trimEnd').value) || vid.duration);
   if (e <= s) { $('outLen').textContent = '⚠ 끝 시간이 시작 시간보다 커야 합니다'; return; }
-  $('outLen').textContent = '✅ 완성 영상 길이: 약 ' + ((e - s) / curSpeed()).toFixed(1) + '초';
+  const kept = keptDuration();
+  if (kept < 0.2) { $('outLen').textContent = '⚠ 남은 영상 조각이 없습니다. 타임라인에서 조각을 복원해 주세요.'; return; }
+  const cut = (e - s) - kept;
+  $('outLen').textContent = '✅ 완성 영상 길이: 약 ' + (kept / curSpeed()).toFixed(1) + '초'
+    + (cut > 0.05 ? ` (중간 ${cut.toFixed(1)}초 잘라냄)` : '');
 }
 
 /* ---------- 배경음악 ---------- */
@@ -589,12 +684,14 @@ async function selectBgm(tr) {
   $('bgmName').textContent = '🎵 ' + tr.name;
   $('bgmVolRow').style.display = 'flex';
   localStorage.setItem('bgmLastId', tr.id);
+  rebuildTimeline();
 }
 function clearBgm() {
   bgm.pause(); bgm.removeAttribute('src');
   bgmLoaded = false; bgmSelectedId = null;
   $('bgmVolRow').style.display = 'none';
   localStorage.removeItem('bgmLastId');
+  rebuildTimeline();
 }
 
 async function renderBgmList() {
@@ -772,6 +869,7 @@ function render() {
     drawShape({ ...tempRect, shape: $('shapeSel').value, color: '#ffffff' });
     ctx.globalAlpha = 1;
   }
+  if (vid.duration) $('playhead').style.left = (vid.currentTime / vid.duration * 100) + '%';
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
@@ -957,6 +1055,7 @@ function refreshList() {
     };
     box.appendChild(d);
   });
+  rebuildTimeline();
 }
 $('selectAllObjs').onclick = () => {
   if (!objects.length) return;
@@ -1031,6 +1130,7 @@ function wireTimeRange(targetInput) {
     $('pTimed').checked = true;
     $('pTimeRow').style.display = 'block';
     syncTimeUi(t0, t1);
+    rebuildTimeline();
   }
   $('pTimed').onchange = e => {
     if (e.target.checked) {
@@ -1038,6 +1138,7 @@ function wireTimeRange(targetInput) {
     } else {
       targets.forEach(o => { o.t0 = o.t1 = null; });
       $('pTimeRow').style.display = 'none';
+      rebuildTimeline();
     }
   };
   $('pT0').oninput = () => applyTimes(parseFloat($('pT0').value) || 0, parseFloat($('pT1').value) || timeDuration());
@@ -1197,9 +1298,12 @@ function pickMime() {
 $('exportBtn').onclick = async () => {
   if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
   if (exporting) return;
-  const start = Math.max(0, parseFloat($('trimStart').value) || 0);
-  const end = Math.min(vid.duration, parseFloat($('trimEnd').value) || vid.duration);
-  if (end - start < 0.2) { alert('시작/끝 시간을 확인해 주세요. (끝이 시작보다 커야 합니다)'); return; }
+  const ranges = keptRanges();
+  const totalKept = ranges.reduce((a, r) => a + (r.e - r.s), 0);
+  if (!ranges.length || totalKept < 0.2) {
+    alert('남은 영상 구간이 너무 짧습니다.\n타임라인에서 잘라낸 조각을 클릭해 복원하거나 시작/끝 시간을 확인해 주세요.');
+    return;
+  }
   const speed = parseFloat($('speedSel').value);
   const mute = $('muteChk').checked;
   const mime = pickMime();
@@ -1210,8 +1314,7 @@ $('exportBtn').onclick = async () => {
   $('exportFill').style.width = '0%'; $('exportPct').textContent = '0%';
 
   vid.pause();
-  vid.currentTime = start;
-  await new Promise(r => vid.onseeked = () => { vid.onseeked = null; r(); });
+  await seekTo(ranges[0].s);
 
   const stream = cv.captureStream(30);
   let exportDest = null, vidSrcNode = null;
@@ -1257,15 +1360,35 @@ $('exportBtn').onclick = async () => {
     }
   };
 
+  /* 남은 구간들을 차례로 재생하며 녹화. 잘라낸 구간은 녹화를 잠시 멈추고 건너뛴다 */
+  let ri = 0, jumping = false;
   const tick = () => {
     if (!exporting) return;
-    const pct = Math.min(100, ((vid.currentTime - start) / (end - start)) * 100);
-    $('exportFill').style.width = pct + '%';
-    $('exportPct').textContent = Math.round(pct) + '%';
-    if (vid.currentTime >= end - 0.05 || vid.ended) {
-      vid.pause();
-      rec.stop();
-      return;
+    if (!jumping) {
+      const doneBefore = ranges.slice(0, ri).reduce((a, r) => a + (r.e - r.s), 0);
+      const cur = Math.min(Math.max(vid.currentTime - ranges[ri].s, 0), ranges[ri].e - ranges[ri].s);
+      const pct = Math.min(100, ((doneBefore + cur) / totalKept) * 100);
+      $('exportFill').style.width = pct + '%';
+      $('exportPct').textContent = Math.round(pct) + '%';
+      if (vid.currentTime >= ranges[ri].e - 0.05 || vid.ended) {
+        if (ri + 1 < ranges.length) {
+          jumping = true;
+          ri++;
+          (async () => {
+            try { rec.pause(); } catch (e) {}
+            vid.pause();
+            await seekTo(ranges[ri].s);
+            try { rec.resume(); } catch (e) {}
+            vid.playbackRate = speed;
+            await vid.play().catch(() => {});
+            jumping = false;
+          })();
+        } else {
+          vid.pause();
+          rec.stop();
+          return;
+        }
+      }
     }
     requestAnimationFrame(tick);
   };
@@ -1276,6 +1399,240 @@ $('exportBtn').onclick = async () => {
   await vid.play();
   tick();
 };
+
+/* ==================================================================
+   타임라인 (캡컷식 컷편집 바: 영상 / 음성 / 자막 / 모양)
+   ================================================================== */
+let cutPoints = [];       // ✂로 자른 시간 지점들
+let removedRanges = [];   // 삭제(건너뛰기)된 영상 구간 [{s,e}]
+
+function tlDur() { return Math.max(0.1, vid.duration || 1); }
+function trimWindow() {
+  const s = Math.max(0, parseFloat($('trimStart').value) || 0);
+  const e = Math.min(tlDur(), parseFloat($('trimEnd').value) || tlDur());
+  return { s, e };
+}
+/* 시작~끝 사이를 자른 지점으로 나눈 조각 목록 */
+function videoPieces() {
+  const { s: s0, e: e0 } = trimWindow();
+  if (e0 - s0 < 0.05) return [];
+  const bounds = [s0,
+    ...cutPoints.filter(c => c > s0 + 0.05 && c < e0 - 0.05).sort((a, b) => a - b),
+    e0];
+  const pieces = [];
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const s = bounds[i], e = bounds[i + 1];
+    if (e - s < 0.05) continue;
+    const mid = (s + e) / 2;
+    pieces.push({ s, e, removed: removedRanges.some(r => mid > r.s && mid < r.e) });
+  }
+  return pieces;
+}
+/* 최종 영상에 남는 구간 (이어진 조각은 합침) */
+function keptRanges() {
+  const out = [];
+  for (const p of videoPieces()) {
+    if (p.removed) continue;
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.e - p.s) < 0.01) last.e = p.e;
+    else out.push({ s: p.s, e: p.e });
+  }
+  return out;
+}
+function keptDuration() { return keptRanges().reduce((a, r) => a + r.e - r.s, 0); }
+
+$('splitBtn').onclick = () => {
+  if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+  const t = vid.currentTime;
+  const { s, e } = trimWindow();
+  if (t <= s + 0.05 || t >= e - 0.05) { alert('영상 중간(시작과 끝 사이)에서만 자를 수 있습니다.'); return; }
+  if (cutPoints.some(c => Math.abs(c - t) < 0.05)) return;
+  cutPoints.push(t);
+  rebuildTimeline(); updateOutLen();
+};
+function togglePiece(p) {
+  if (p.removed) {
+    const mid = (p.s + p.e) / 2;
+    removedRanges = removedRanges.filter(r => !(mid > r.s && mid < r.e));
+  } else {
+    removedRanges.push({ s: p.s, e: p.e });
+  }
+  rebuildTimeline(); updateOutLen();
+}
+
+/* 자막/모양 막대 드래그 (이동/길이조절/클릭선택) */
+function makeObjClip(track, items, label, cls) {
+  const ref = items[0];
+  const dur = tlDur();
+  const untimed = ref.t0 == null;
+  const t0 = ref.t0 ?? 0, t1 = ref.t1 ?? dur;
+  const c = document.createElement('div');
+  c.className = 'clip ' + cls + (items.some(isObjectSelected) ? ' sel' : '');
+  c.style.left = (t0 / dur * 100) + '%';
+  c.style.width = Math.max(0.6, (t1 - t0) / dur * 100) + '%';
+  c.title = untimed
+    ? label + ' — 영상 전체에 표시됩니다. 양끝을 끌면 특정 구간으로 줄일 수 있어요.'
+    : label + ' — 끌어서 시간 이동, 양끝을 끌어 길이 조절';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const eL = document.createElement('div'); eL.className = 'edge edgeL';
+  const eR = document.createElement('div'); eR.className = 'edge edgeR';
+  c.append(eL, span, eR);
+
+  c.onpointerdown = e => {
+    if (exporting) return;
+    e.preventDefault(); e.stopPropagation();
+    c.setPointerCapture(e.pointerId);
+    const rect = $('tlTracks').getBoundingClientRect();
+    const pxPerSec = rect.width / dur;
+    const edge = e.target === eL ? 'L' : e.target === eR ? 'R' : null;
+    const startX = e.clientX;
+    const orig = items.map(o => ({ o, t0: o.t0 ?? 0, t1: o.t1 ?? dur }));
+    let moved = false;
+    c.onpointermove = ev => {
+      if (!ev.buttons) return;
+      if (Math.abs(ev.clientX - startX) > 3) moved = true;
+      if (!moved) return;
+      const dt = (ev.clientX - startX) / pxPerSec;
+      orig.forEach(({ o, t0: a, t1: b }) => {
+        if (edge === 'L') { o.t0 = Math.max(0, Math.min(a + dt, b - 0.1)); o.t1 = b; }
+        else if (edge === 'R') { o.t0 = a; o.t1 = Math.min(dur, Math.max(b + dt, a + 0.1)); }
+        else {
+          if (untimed) return;   // 전체 표시 막대는 본체 이동 없음
+          const span = b - a;
+          let n0 = a + dt;
+          n0 = Math.max(0, Math.min(n0, dur - span));
+          o.t0 = n0; o.t1 = n0 + span;
+        }
+      });
+      const r0 = items[0];
+      const nt0 = r0.t0 ?? 0, nt1 = r0.t1 ?? dur;
+      c.style.left = (nt0 / dur * 100) + '%';
+      c.style.width = Math.max(0.6, (nt1 - nt0) / dur * 100) + '%';
+    };
+    const finish = () => {
+      c.onpointermove = null; c.onpointerup = null;
+      if (!moved) {
+        // 클릭 = 선택 (자막 쌍이면 글자 쪽을 선택해서 바로 내용 수정 가능)
+        const target = items.find(o => o.type === 'text') || items[0];
+        select(target);
+        vid.currentTime = Math.min(tlDur(), Math.max(0, (items[0].t0 ?? 0) + 0.05));
+        updateTime();
+      } else {
+        refreshProps();
+      }
+      rebuildTimeline();
+    };
+    c.onpointerup = finish;
+    c.onpointercancel = finish;
+  };
+  track.appendChild(c);
+}
+
+function rebuildTimeline() {
+  if (!vid.duration) return;
+  $('timeline').classList.add('on');
+  const dur = tlDur();
+
+  // 눈금자
+  const ruler = $('tlRuler'); ruler.innerHTML = '';
+  const step = dur > 120 ? 20 : dur > 60 ? 10 : dur > 30 ? 5 : dur > 10 ? 2 : 1;
+  for (let t = 0; t < dur; t += step) {
+    const d = document.createElement('div');
+    d.className = 'tlTick';
+    d.style.left = (t / dur * 100) + '%';
+    d.textContent = fmt(t);
+    ruler.appendChild(d);
+  }
+
+  // 영상 트랙: 조각 클릭 = 삭제/복원
+  const tv = $('trackVideo'); tv.innerHTML = '';
+  videoPieces().forEach(p => {
+    const c = document.createElement('div');
+    c.className = 'clip video' + (p.removed ? ' removed' : '');
+    c.style.left = (p.s / dur * 100) + '%';
+    c.style.width = ((p.e - p.s) / dur * 100) + '%';
+    c.textContent = (p.removed ? '✕ ' : '🎞 ') + (p.e - p.s).toFixed(1) + '초';
+    c.title = p.removed ? '클릭하면 이 조각을 다시 살립니다' : '클릭하면 이 조각을 잘라냅니다 (완성 영상에서 빠짐)';
+    c.onclick = () => { if (!exporting) togglePiece(p); };
+    tv.appendChild(c);
+  });
+
+  // 음성 트랙: 원본 소리 + 배경음악
+  const ta = $('trackAudio'); ta.innerHTML = '';
+  const oa = document.createElement('div');
+  const muted = $('muteChk').checked;
+  oa.className = 'clip audio' + (muted ? ' off' : '');
+  oa.style.left = '0'; oa.style.width = bgmLoaded ? '49%' : '100%';
+  oa.textContent = muted ? '🔇 원본 소리 (제거됨)' : '🔊 원본 소리';
+  oa.title = '클릭하면 원본(중국어) 소리를 켜고 끕니다';
+  oa.onclick = () => {
+    if (exporting) return;
+    $('muteChk').checked = !$('muteChk').checked;
+    vid.muted = $('muteChk').checked;
+    rebuildTimeline();
+  };
+  ta.appendChild(oa);
+  if (bgmLoaded) {
+    const ba = document.createElement('div');
+    ba.className = 'clip audio';
+    ba.style.left = '50%'; ba.style.width = '50%';
+    ba.textContent = '🎵 ' + ($('bgmName').textContent.replace(/^🎵\s*/, '') || '배경음악');
+    ba.title = '배경음악은 완성 영상 전체에 깔립니다. 음량은 오른쪽 3단계에서 조절하세요.';
+    ta.appendChild(ba);
+  }
+
+  // 자막 트랙(AI 자막 쌍 + 일반 텍스트) / 모양 트랙(가리개 도형)
+  const ts = $('trackSub'); ts.innerHTML = '';
+  const tsh = $('trackShape'); tsh.innerHTML = '';
+  const groups = {};
+  const singleTexts = [], singleRects = [];
+  for (const o of objects) {
+    if (o.subId != null) (groups[o.subId] = groups[o.subId] || []).push(o);
+    else if (o.type === 'text') singleTexts.push([o]);
+    else singleRects.push([o]);
+  }
+  for (const id of Object.keys(groups)) {
+    const items = groups[id];
+    const t = items.find(o => o.type === 'text');
+    const label = t ? (t.text.length > 14 ? t.text.slice(0, 14) + '…' : t.text) : '가리개만';
+    makeObjClip(ts, items, label, 'sub');
+  }
+  for (const items of singleTexts) {
+    const t = items[0];
+    makeObjClip(ts, items, t.text.length > 14 ? t.text.slice(0, 14) + '…' : t.text, 'sub');
+  }
+  for (const items of singleRects) {
+    makeObjClip(tsh, items, SHAPE_NAMES[items[0].shape || 'rect'], 'shape');
+  }
+}
+
+/* 눈금자 드래그 = 위치 이동 */
+$('tlRuler').addEventListener('pointerdown', e => {
+  if (!vid.duration || exporting) return;
+  $('tlRuler').setPointerCapture(e.pointerId);
+  const toT = x => {
+    const r = $('tlRuler').getBoundingClientRect();
+    return Math.min(tlDur(), Math.max(0, (x - r.left) / r.width * tlDur()));
+  };
+  vid.currentTime = toT(e.clientX); updateTime();
+  $('tlRuler').onpointermove = ev => { if (ev.buttons) { vid.currentTime = toT(ev.clientX); updateTime(); } };
+  $('tlRuler').onpointerup = () => { $('tlRuler').onpointermove = null; };
+});
+
+/* 재생 중 삭제 구간 자동 건너뛰기 (미리보기 = 완성 영상) */
+vid.addEventListener('timeupdate', () => {
+  if (exporting || vid.paused || !vid.duration) return;
+  const t = vid.currentTime;
+  for (const p of videoPieces()) {
+    if (p.removed && t >= p.s && t < p.e - 0.05) {
+      const next = keptRanges().find(r => r.s >= t - 0.01);
+      if (next) vid.currentTime = next.s + 0.01;
+      else vid.pause();
+      return;
+    }
+  }
+});
 
 /* ==================================================================
    AI 자동 번역 (중국어 자막 감지 → Gemini 번역 → 가리개+텍스트 생성)
