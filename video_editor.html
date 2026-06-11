@@ -138,6 +138,36 @@
         <span id="aiStatus" style="flex:1; font-size:12px; color:#7ee087"></span>
         <button id="aiCancelBtn" class="danger" style="font-size:11px; padding:4px 8px">중단</button>
       </div>
+      <div id="subStyleBox" style="display:none; margin-top:10px; border-top:1px solid #2e3850; padding-top:8px">
+        <div class="row"><label style="color:#ffb648; font-weight:bold">🎨 자막 일괄 스타일</label></div>
+        <div class="row">
+          <label>모양</label>
+          <select id="ssShape">
+            <option value="round">▢ 둥근네모</option>
+            <option value="rect">⬛ 네모</option>
+          </select>
+          <label>박스색</label><input type="color" id="ssBoxColor" value="#3f5159">
+        </div>
+        <div class="row">
+          <label>글자</label>
+          <input type="number" id="ssSize" value="28" min="12" max="200" style="width:56px">
+          <input type="color" id="ssTextColor" value="#ffffff">
+          <label><input type="checkbox" id="ssBold" checked> 굵게</label>
+        </div>
+        <div class="row">
+          <label>글씨체</label><select id="ssFont" style="max-width:170px"></select>
+        </div>
+        <div class="row">
+          <label>세로 위치</label><input type="range" id="ssY" min="5" max="98" value="88" style="flex:1">
+        </div>
+        <div class="row">
+          <label>박스 여백</label>
+          <input type="number" id="ssPadX" value="18" min="0" max="120" style="width:52px">
+          <input type="number" id="ssPadY" value="10" min="0" max="80" style="width:52px">
+          <label>(가로/세로)</label>
+        </div>
+        <div class="hint">바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다. 글자 내용만 "추가된 항목"에서 항목별로 수정하세요.</div>
+      </div>
       <div class="hint">
         영상 하단의 중국어 자막을 자동으로 찾아 한글로 번역한 뒤,
         가리개+한글 텍스트를 표시 구간까지 맞춰서 자동 추가합니다.
@@ -649,7 +679,11 @@ function refreshProps() {
         <input type="color" id="pBgColor" value="${selected.bgColor}">
       </div>
       ${timeRangeHTML(selected)}`;
-    $('pText').oninput = e => { selected.text = e.target.value; refreshList(); };
+    $('pText').oninput = e => {
+      selected.text = e.target.value;
+      refreshList();
+      if (selected.subId != null) applySubStyle();   // AI 자막은 내용이 바뀌면 자동 재정렬
+    };
     $('pFont').onchange = e => selected.font = e.target.value;
     $('pSize').oninput = e => selected.size = +e.target.value || 20;
     $('pTColor').oninput = e => selected.color = e.target.value;
@@ -787,14 +821,32 @@ function seekTo(t) {
   });
 }
 
-/* 흰색/노란색 자막 픽셀 마스크 */
+/* 흰색/노란색 자막 픽셀 마스크
+   - 주변(상하좌우 4px)에 어두운 픽셀이 있는 글자만 인정
+   - 하늘처럼 넓게 밝은 배경이 자막으로 오인되는 것을 막는다 */
 function analyzeBand(img, w, h) {
   const d = img.data;
-  const mask = new Uint8Array(w * h);
-  let count = 0;
+  const bright = new Uint8Array(w * h);
   for (let p = 0, i = 0; p < w * h; p++, i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2];
-    if ((r > 195 && g > 195 && b > 195) || (r > 200 && g > 170 && b < 130)) { mask[p] = 1; count++; }
+    if ((r > 195 && g > 195 && b > 195) || (r > 200 && g > 170 && b < 130)) bright[p] = 1;
+  }
+  const mask = new Uint8Array(w * h);
+  let count = 0;
+  const off = 4;
+  const darkAt = (x, y) => {
+    const i = (y * w + x) * 4;
+    return d[i] + d[i + 1] + d[i + 2] < 330;
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (!bright[p]) continue;
+      if ((x >= off && darkAt(x - off, y)) || (x + off < w && darkAt(x + off, y)) ||
+          (y >= off && darkAt(x, y - off)) || (y + off < h && darkAt(x, y + off))) {
+        mask[p] = 1; count++;
+      }
+    }
   }
   return { mask, count };
 }
@@ -821,33 +873,61 @@ function sameSig(a, b) {
   return uni === 0 ? true : inter / uni > 0.45;
 }
 
-/* 마스크에서 자막 영역 찾기 (양끝 2% 노이즈는 무시) */
+/* 마스크에서 자막 영역 찾기
+   - 글자가 가장 많은 줄(피크)을 중심으로 자막 줄 높이를 잡고
+   - 그 줄 범위 안에서만 가로 폭을 계산해 박스가 엉뚱하게 커지는 것을 막는다 */
 function bboxOf(mask, w, h) {
-  const colC = new Uint32Array(w), rowC = new Uint32Array(h);
+  const rowC = new Uint32Array(h);
   let total = 0;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (mask[y * w + x]) { colC[x]++; rowC[y]++; total++; }
+  for (let y = 0; y < h; y++) {
+    let c = 0;
+    for (let x = 0; x < w; x++) if (mask[y * w + x]) c++;
+    rowC[y] = c; total += c;
   }
   if (!total) return null;
-  const trim = total * 0.02;
-  let acc, x1 = 0, x2 = w - 1, y1 = 0, y2 = h - 1;
-  acc = 0; for (let x = 0; x < w; x++) { acc += colC[x]; if (acc > trim) { x1 = x; break; } }
-  acc = 0; for (let x = w - 1; x >= 0; x--) { acc += colC[x]; if (acc > trim) { x2 = x; break; } }
-  acc = 0; for (let y = 0; y < h; y++) { acc += rowC[y]; if (acc > trim) { y1 = y; break; } }
-  acc = 0; for (let y = h - 1; y >= 0; y--) { acc += rowC[y]; if (acc > trim) { y2 = y; break; } }
+  let peak = 0, py = 0;
+  for (let y = 0; y < h; y++) if (rowC[y] > peak) { peak = rowC[y]; py = y; }
+  if (peak < 6) return null;
+  let y1 = py, y2 = py;
+  while (y1 > 0 && rowC[y1 - 1] >= peak * 0.12) y1--;
+  while (y2 < h - 1 && rowC[y2 + 1] >= peak * 0.12) y2++;
+  const colC = new Uint32Array(w);
+  let sub = 0;
+  for (let y = y1; y <= y2; y++) for (let x = 0; x < w; x++) {
+    if (mask[y * w + x]) { colC[x]++; sub++; }
+  }
+  if (!sub) return null;
+  const trim = sub * 0.02;
+  let acc = 0, x1 = 0, x2 = w - 1;
+  for (let x = 0; x < w; x++) { acc += colC[x]; if (acc > trim) { x1 = x; break; } }
+  acc = 0;
+  for (let x = w - 1; x >= 0; x--) { acc += colC[x]; if (acc > trim) { x2 = x; break; } }
   if (x2 <= x1 || y2 <= y1) return null;
   return { x1, y1, x2, y2 };
 }
 
-/* 자막 바로 위(또는 아래) 배경색을 뽑아 가리개 색으로 사용 */
-function sampleBg(img, bb, w, h) {
-  const row = bb.y1 >= 8 ? bb.y1 - 6 : Math.min(h - 1, bb.y2 + 6);
+/* 자막 영역 안에서 글자가 아닌 픽셀(자막 자체의 배경 박스 색)을 뽑아 가리개 색으로 사용 */
+function sampleBg(img, bb, w, h, mask) {
   let r = 0, g = 0, b = 0, n = 0;
-  for (let x = bb.x1; x <= bb.x2; x += 3) {
-    const i = (row * w + x) * 4;
-    r += img.data[i]; g += img.data[i + 1]; b += img.data[i + 2]; n++;
+  for (let y = bb.y1; y <= bb.y2; y += 2) {
+    for (let x = bb.x1; x <= bb.x2; x += 2) {
+      const p = y * w + x;
+      if (mask[p]) continue;
+      const i = p * 4, rr = img.data[i], gg = img.data[i + 1], bv = img.data[i + 2];
+      if (rr > 195 && gg > 195 && bv > 195) continue;   // 자막 뒤로 비치는 밝은 배경은 제외
+      r += rr; g += gg; b += bv; n++;
+    }
   }
-  if (!n) return '#000000';
+  if (n < 20) {
+    // 자막 박스가 없는 영상: 자막 바로 윗줄의 배경색 사용
+    const row = bb.y1 >= 8 ? bb.y1 - 6 : Math.min(h - 1, bb.y2 + 6);
+    r = 0; g = 0; b = 0; n = 0;
+    for (let x = bb.x1; x <= bb.x2; x += 3) {
+      const i = (row * w + x) * 4;
+      r += img.data[i]; g += img.data[i + 1]; b += img.data[i + 2]; n++;
+    }
+    if (!n) return '#3f5159';
+  }
   const hex = v => Math.round(v / n).toString(16).padStart(2, '0');
   return '#' + hex(r) + hex(g) + hex(b);
 }
@@ -903,7 +983,7 @@ async function scanSubtitles() {
         const bb = bboxOf(mask, scv.width, bandH);
         if (bb) {
           cur = { t0: t, t1: t, bbox: toVideoBox(bb), b64: cropB64(bb, bandY),
-                  bg: sampleBg(img, bb, scv.width, bandH), chinese: '', korean: '' };
+                  bg: sampleBg(img, bb, scv.width, bandH, mask), chinese: '', korean: '' };
           curSig = sig;
         }
       }
@@ -968,28 +1048,61 @@ async function geminiBatch(key, batch) {
   throw new Error('무료 사용량 한도에 계속 걸립니다. 1~2분 뒤 다시 시도해 주세요.');
 }
 
-/* 3단계: 가리개 + 한글 텍스트 객체 생성 */
-function addCoverAndText(s) {
-  const b = s.bbox;
+/* 3단계: 가리개 + 한글 텍스트를 쌍으로 생성 (subId로 묶어서 일괄 스타일 적용 대상) */
+let subSeq = 0;
+function makeSubPair(s) {
   const t0 = Math.max(0, s.t0 - 0.1), t1 = s.t1 + 0.1;
-  objects.push({ type: 'rect', shape: 'rect', x: b.x, y: b.y, w: b.w, h: b.h, color: s.bg, t0, t1 });
-
-  let size = Math.max(14, Math.round(Math.min(b.h * 0.6, cv.width / 16)));
-  ctx.font = 'bold ' + size + 'px ' + FONTS[0][0];
-  let tw = ctx.measureText(s.korean).width;
-  while (tw > b.w - 10 && size > 13) {
-    size -= 2;
-    ctx.font = 'bold ' + size + 'px ' + FONTS[0][0];
-    tw = ctx.measureText(s.korean).width;
-  }
-  const lum = parseInt(s.bg.slice(1, 3), 16) * .299 + parseInt(s.bg.slice(3, 5), 16) * .587 + parseInt(s.bg.slice(5, 7), 16) * .114;
-  objects.push({
-    type: 'text', text: s.korean, size,
-    x: b.x + b.w / 2 - tw / 2, y: b.y + (b.h - size * 1.25) / 2,
-    color: lum > 160 ? '#111111' : '#ffffff', bold: true, bg: false, bgColor: '#000000',
-    font: FONTS[0][0], t0, t1
-  });
+  const id = ++subSeq;
+  // 실제 위치/크기는 applySubStyle()이 일괄 계산. cover에 원본 자막 위치를 기억해 항상 가려지게 한다.
+  objects.push({ type: 'rect', shape: 'round', x: s.bbox.x, y: s.bbox.y, w: s.bbox.w, h: s.bbox.h,
+                 color: s.bg, t0, t1, subId: id, cover: { ...s.bbox } });
+  objects.push({ type: 'text', text: s.korean, size: 28, x: s.bbox.x, y: s.bbox.y,
+                 color: '#ffffff', bold: true, bg: false, bgColor: '#000000',
+                 font: FONTS[0][0], t0, t1, subId: id });
 }
+
+/* 자막 일괄 스타일 적용: 모든 AI 자막 쌍을 가운데 정렬 + 동일 스타일로 재배치 */
+function applySubStyle() {
+  const pairs = {};
+  for (const o of objects) {
+    if (o.subId == null) continue;
+    (pairs[o.subId] = pairs[o.subId] || {})[o.type] = o;
+  }
+  const shape = $('ssShape').value, boxColor = $('ssBoxColor').value;
+  const size = Math.max(10, +$('ssSize').value || 28);
+  const tColor = $('ssTextColor').value, bold = $('ssBold').checked, font = $('ssFont').value;
+  const yCenter = (+$('ssY').value / 100) * cv.height;
+  const padX = +$('ssPadX').value || 0, padY = +$('ssPadY').value || 0;
+
+  for (const id in pairs) {
+    const p = pairs[id];
+    if (!p.rect || !p.text) continue;   // 한쪽을 삭제한 자막은 건너뜀
+    const t = p.text;
+    t.size = size; t.color = tColor; t.bold = bold; t.font = font; t.bg = false;
+    ctx.font = (bold ? 'bold ' : '') + size + 'px ' + font;
+    const lines = t.text.split('\n');
+    let tw = 0;
+    lines.forEach(l => tw = Math.max(tw, ctx.measureText(l).width));
+    const th = lines.length * size * 1.25;
+    let bw = tw + padX * 2, bh = th + padY * 2;
+    let bx = cv.width / 2 - bw / 2, by = yCenter - bh / 2;
+    // 원본 중국어 자막이 박스 밖으로 삐져나오지 않게 필요한 만큼만 확장
+    const ov = p.rect.cover;
+    if (ov && ov.h < bh * 3 && ov.w < cv.width * 0.95) {
+      const left = Math.min(bx, ov.x), right = Math.max(bx + bw, ov.x + ov.w);
+      const top = Math.min(by, ov.y), bottom = Math.max(by + bh, ov.y + ov.h);
+      bx = left; by = top; bw = right - left; bh = bottom - top;
+    }
+    Object.assign(p.rect, { shape, color: boxColor, x: bx, y: by, w: bw, h: bh });
+    t.x = cv.width / 2 - tw / 2;
+    t.y = yCenter - th / 2;
+  }
+}
+
+/* 일괄 스타일 컨트롤 연결 */
+$('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
+['ssShape', 'ssBoxColor', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssY', 'ssPadX', 'ssPadY']
+  .forEach(id => $(id).addEventListener('input', applySubStyle));
 
 $('aiBtn').onclick = async () => {
   if (aiRunning || exporting) return;
@@ -1025,12 +1138,28 @@ $('aiBtn').onclick = async () => {
       if (last && last.chinese && last.chinese === s.chinese && s.t0 - last.t1 < 0.8) last.t1 = s.t1;
       else merged.push(s);
     }
-    const finals = merged.filter(s => s.korean);
+    const finals = merged.filter(s => s.korean && s.bbox.h < cv.height * 0.25);
+    if (!finals.length) {
+      alert('자막을 찾았지만 번역할 내용이 없었습니다.');
+      return;
+    }
 
-    for (const s of finals) addCoverAndText(s);
+    // 감지된 자막들의 중앙값 크기·위치로 일괄 스타일 기본값 설정
+    const med = arr => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+    const medH = med(finals.map(s => s.bbox.h));
+    const medCY = med(finals.map(s => s.bbox.y + s.bbox.h / 2));
+    $('ssSize').value = Math.max(14, Math.round(medH * 0.5));
+    $('ssY').value = Math.min(98, Math.max(5, Math.round(medCY / cv.height * 100)));
+    $('ssBoxColor').value = finals[Math.floor(finals.length / 2)].bg;
+    $('ssPadX').value = Math.max(10, Math.round(cv.width * 0.018));
+    $('ssPadY').value = Math.max(6, Math.round(medH * 0.18));
+
+    for (const s of finals) makeSubPair(s);
+    applySubStyle();
+    $('subStyleBox').style.display = 'block';
     refreshList();
     aiStatus(`완료! 자막 ${finals.length}개 구간 적용`);
-    alert(`자동 번역 완료!\n\n자막 ${finals.length}개 구간에 가리개+한글 텍스트를 추가했습니다.\n재생해서 확인하고, 어긋난 부분은 "추가된 항목"에서 클릭해 수정하세요.`);
+    alert(`자동 번역 완료!\n\n자막 ${finals.length}개 구간에 가리개+한글 텍스트를 추가했습니다.\n\n· 크기·색·위치가 마음에 안 들면 "🎨 자막 일괄 스타일"에서 한 번에 바꿀 수 있습니다.\n· 글자 내용은 "추가된 항목"에서 항목별로 수정하세요.`);
   } catch (err) {
     aiStatus('');
     $('aiProgRow').style.display = 'none';
