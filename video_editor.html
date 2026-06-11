@@ -236,16 +236,23 @@
       </div>
       <div class="hint">중국 로고가 나오는 앞·뒤 부분은 시작/끝 시간을 조절해서 잘라내세요.</div>
       <div class="hint" id="outLen" style="color:#7ee087; font-size:12px; margin-top:6px"></div>
-      <div class="row" style="margin-top:10px">
-        <button id="bgmBtn">🎵 배경음악 넣기</button>
-        <input type="file" id="bgmInput" accept="audio/*" hidden>
-        <button id="bgmDelBtn" class="danger" style="display:none" title="배경음악 제거">✕</button>
+      <div class="row" style="margin-top:10px; justify-content:space-between">
+        <label style="color:#ffb648; font-weight:bold">🎵 배경음악 보관함</label>
+        <button id="bgmAddBtn" style="font-size:11px; padding:4px 8px">➕ 음악 추가</button>
+        <input type="file" id="bgmInput" accept="audio/*" multiple hidden>
       </div>
-      <div class="row" id="bgmVolRow" style="display:none">
+      <div id="bgmList" style="display:flex; flex-direction:column; gap:4px"></div>
+      <div class="row" id="bgmVolRow" style="display:none; margin-top:6px">
         <label id="bgmName" style="width:100%; color:#7ee087"></label>
         <label>음량</label><input type="range" id="bgmVol" min="0" max="100" value="50" style="flex:1">
       </div>
-      <div class="hint">mp3 등 음악 파일을 넣으면 완성 영상에 함께 저장됩니다. 음악이 짧으면 자동 반복되고, "소리 제거"를 체크하면 원본 중국어 소리는 빠지고 음악만 들어갑니다.</div>
+      <div class="hint">
+        한 번 추가한 음악은 보관함에 계속 남아 클릭만으로 재사용할 수 있습니다.
+        (클릭=선택, 다시 클릭=해제, ▶=미리듣기, ✕=삭제)<br>
+        무료 음원 추천: <b>유튜브 오디오 라이브러리</b>(studio.youtube.com → 오디오 보관함),
+        <b>Pixabay</b>(pixabay.com/music) — 저작권 걱정 없이 쓸 수 있습니다.<br>
+        음악이 짧으면 자동 반복되고, "소리 제거"를 체크하면 원본 중국어 소리는 빠지고 음악만 들어갑니다.
+      </div>
     </div>
 
     <div class="section">
@@ -356,24 +363,102 @@ function ensureAudioGraph() {
   src.connect(bgmGain);
   bgmGain.connect(ac.destination);
 }
-$('bgmBtn').onclick = () => $('bgmInput').click();
-$('bgmInput').onchange = e => {
-  const f = e.target.files[0]; if (!f) return;
-  bgm.src = URL.createObjectURL(f);
+/* 배경음악 보관함: IndexedDB에 저장해서 다음 실행에도 유지 */
+let bgmSelectedId = null;
+
+function bgmDb() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('bgmLibrary', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('tracks', { keyPath: 'id', autoIncrement: true });
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function bgmTx(mode, fn) {
+  return bgmDb().then(db => new Promise((res, rej) => {
+    const tx = db.transaction('tracks', mode);
+    const req = fn(tx.objectStore('tracks'));
+    tx.oncomplete = () => res(req ? req.result : undefined);
+    tx.onerror = () => rej(tx.error);
+  }));
+}
+const bgmTracks = () => bgmTx('readonly', st => st.getAll()).catch(() => []);
+
+async function selectBgm(tr) {
+  bgm.src = URL.createObjectURL(tr.blob);
   bgm.volume = $('bgmVol').value / 100;
-  bgmLoaded = true;
+  bgmLoaded = true; bgmSelectedId = tr.id;
   ensureAudioGraph();
-  $('bgmName').textContent = '🎵 ' + f.name;
+  $('bgmName').textContent = '🎵 ' + tr.name;
   $('bgmVolRow').style.display = 'flex';
-  $('bgmDelBtn').style.display = 'inline-block';
-};
-$('bgmDelBtn').onclick = () => {
-  bgm.pause(); bgm.removeAttribute('src'); bgmLoaded = false;
+  localStorage.setItem('bgmLastId', tr.id);
+}
+function clearBgm() {
+  bgm.pause(); bgm.removeAttribute('src');
+  bgmLoaded = false; bgmSelectedId = null;
   $('bgmVolRow').style.display = 'none';
-  $('bgmDelBtn').style.display = 'none';
-  $('bgmInput').value = '';
+  localStorage.removeItem('bgmLastId');
+}
+
+async function renderBgmList() {
+  const list = $('bgmList'); list.innerHTML = '';
+  const tracks = await bgmTracks();
+  if (!tracks.length) {
+    list.innerHTML = '<div class="hint">아직 추가한 음악이 없습니다. "➕ 음악 추가"로 mp3를 넣어두면 계속 재사용할 수 있어요.</div>';
+    return;
+  }
+  for (const tr of tracks) {
+    const d = document.createElement('div');
+    d.className = 'objItem' + (tr.id === bgmSelectedId ? ' sel' : '');
+    const name = tr.name.length > 24 ? tr.name.slice(0, 24) + '…' : tr.name;
+    d.innerHTML = `<span class="prev" title="미리듣기" style="cursor:pointer">▶</span> ${name}<span class="del" title="보관함에서 삭제">✕</span>`;
+    d.onclick = async ev => {
+      if (ev.target.classList.contains('del')) {
+        if (!confirm(`"${tr.name}" 을(를) 보관함에서 삭제할까요?`)) return;
+        await bgmTx('readwrite', st => st.delete(tr.id));
+        if (bgmSelectedId === tr.id) clearBgm();
+        renderBgmList();
+        return;
+      }
+      if (ev.target.classList.contains('prev')) {
+        if (bgmSelectedId !== tr.id) { await selectBgm(tr); renderBgmList(); }
+        ensureAudioGraph(); ac.resume();
+        if (bgm.paused) bgm.play(); else { bgm.pause(); bgm.currentTime = 0; }
+        return;
+      }
+      if (bgmSelectedId === tr.id) clearBgm();
+      else await selectBgm(tr);
+      renderBgmList();
+    };
+    list.appendChild(d);
+  }
+}
+
+$('bgmAddBtn').onclick = () => $('bgmInput').click();
+$('bgmInput').onchange = async e => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  let lastTrack = null;
+  for (const f of files) {
+    const id = await bgmTx('readwrite', st => st.add({ name: f.name, blob: f }));
+    lastTrack = { id, name: f.name, blob: f };
+  }
+  if (lastTrack) await selectBgm(lastTrack);
+  renderBgmList();
+  e.target.value = '';
 };
 $('bgmVol').oninput = e => bgm.volume = e.target.value / 100;
+
+/* 시작 시 보관함 목록 표시 + 마지막에 쓰던 음악 자동 선택 */
+(async () => {
+  const lastId = +localStorage.getItem('bgmLastId');
+  if (lastId) {
+    const tracks = await bgmTracks();
+    const tr = tracks.find(t => t.id === lastId);
+    if (tr) await selectBgm(tr);
+  }
+  renderBgmList();
+})();
 
 /* ---------- 그리기 루프 ---------- */
 const FONTS = [
