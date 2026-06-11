@@ -149,6 +149,10 @@
           <label>박스색</label><input type="color" id="ssBoxColor" value="#3f5159">
         </div>
         <div class="row">
+          <label>박스 불투명도</label>
+          <input type="range" id="ssAlpha" min="10" max="100" value="100" style="flex:1">
+        </div>
+        <div class="row">
           <label>글자</label>
           <input type="number" id="ssSize" value="28" min="12" max="200" style="width:56px">
           <input type="color" id="ssTextColor" value="#ffffff">
@@ -416,6 +420,8 @@ function drawMosaic(o) {
 }
 function drawShape(o) {
   if (o.shape === 'mosaic') { drawMosaic(o); return; }
+  const prevA = ctx.globalAlpha;
+  if (o.alpha != null) ctx.globalAlpha = prevA * o.alpha;
   ctx.fillStyle = o.color;
   if (o.shape === 'ellipse') {
     ctx.beginPath();
@@ -429,6 +435,7 @@ function drawShape(o) {
   } else {
     ctx.fillRect(o.x, o.y, o.w, o.h);
   }
+  ctx.globalAlpha = prevA;
 }
 function visibleNow(o) {
   return o.t0 == null || (vid.currentTime >= o.t0 - 0.02 && vid.currentTime <= o.t1 + 0.02);
@@ -655,12 +662,20 @@ function refreshProps() {
         <input type="color" id="pColor" value="${selected.color}">
         <button id="pickBtn" style="font-size:11px;padding:4px 7px" title="영상의 배경색을 클릭해서 그대로 가져옵니다">💧 배경색 추출</button>
       </div>
+      <div class="row" style="display:${isMosaic?'none':'flex'}"><label>불투명도</label>
+        <input type="range" id="pAlpha" min="10" max="100" value="${Math.round((selected.alpha ?? 1) * 100)}" style="flex:1">
+        <span style="font-size:11px; color:#aab3c8" id="pAlphaV">${Math.round((selected.alpha ?? 1) * 100)}%</span>
+      </div>
       <div class="hint" id="pRectHint">${isMosaic
         ? '모자이크는 영상 화면을 흐림 처리하므로 색상이 필요 없습니다.'
         : '💧 배경색 추출을 누른 뒤 영상에서 가리고 싶은 부분 <b>주변 배경</b>을 클릭하면 똑같은 색으로 자연스럽게 가려집니다.'}</div>
       ${timeRangeHTML(selected)}`;
     $('pShape').onchange = e => { selected.shape = e.target.value; refreshProps(); refreshList(); };
     $('pColor').oninput = e => selected.color = e.target.value;
+    $('pAlpha').oninput = e => {
+      selected.alpha = e.target.value / 100;
+      $('pAlphaV').textContent = e.target.value + '%';
+    };
     $('pickBtn').onclick = () => { pickingColor = true; cv.style.cursor = 'copy'; };
   } else {
     box.innerHTML = `
@@ -1051,14 +1066,17 @@ async function geminiBatch(key, batch) {
 /* 3단계: 가리개 + 한글 텍스트를 쌍으로 생성 (subId로 묶어서 일괄 스타일 적용 대상) */
 let subSeq = 0;
 function makeSubPair(s) {
-  const t0 = Math.max(0, s.t0 - 0.1), t1 = s.t1 + 0.1;
+  const t0 = Math.max(0, s.t0 - 0.15), t1 = s.t1 + 0.2;
   const id = ++subSeq;
   // 실제 위치/크기는 applySubStyle()이 일괄 계산. cover에 원본 자막 위치를 기억해 항상 가려지게 한다.
   objects.push({ type: 'rect', shape: 'round', x: s.bbox.x, y: s.bbox.y, w: s.bbox.w, h: s.bbox.h,
                  color: s.bg, t0, t1, subId: id, cover: { ...s.bbox } });
-  objects.push({ type: 'text', text: s.korean, size: 28, x: s.bbox.x, y: s.bbox.y,
-                 color: '#ffffff', bold: true, bg: false, bgColor: '#000000',
-                 font: FONTS[0][0], t0, t1, subId: id });
+  // 번역이 비어 있어도 가리개는 남겨서 중국어가 보이지 않게 한다
+  if (s.korean) {
+    objects.push({ type: 'text', text: s.korean, size: 28, x: s.bbox.x, y: s.bbox.y,
+                   color: '#ffffff', bold: true, bg: false, bgColor: '#000000',
+                   font: FONTS[0][0], t0, t1, subId: id });
+  }
 }
 
 /* 자막 일괄 스타일 적용: 모든 AI 자막 쌍을 가운데 정렬 + 동일 스타일로 재배치 */
@@ -1069,6 +1087,7 @@ function applySubStyle() {
     (pairs[o.subId] = pairs[o.subId] || {})[o.type] = o;
   }
   const shape = $('ssShape').value, boxColor = $('ssBoxColor').value;
+  const alpha = (+$('ssAlpha').value || 100) / 100;
   const size = Math.max(10, +$('ssSize').value || 28);
   const tColor = $('ssTextColor').value, bold = $('ssBold').checked, font = $('ssFont').value;
   const yCenter = (+$('ssY').value / 100) * cv.height;
@@ -1076,7 +1095,11 @@ function applySubStyle() {
 
   for (const id in pairs) {
     const p = pairs[id];
-    if (!p.rect || !p.text) continue;   // 한쪽을 삭제한 자막은 건너뜀
+    if (!p.rect) continue;
+    if (!p.text) {   // 번역 없이 가리개만 있는 자막: 위치는 그대로 두고 스타일만 통일
+      Object.assign(p.rect, { shape, color: boxColor, alpha });
+      continue;
+    }
     const t = p.text;
     t.size = size; t.color = tColor; t.bold = bold; t.font = font; t.bg = false;
     ctx.font = (bold ? 'bold ' : '') + size + 'px ' + font;
@@ -1093,7 +1116,7 @@ function applySubStyle() {
       const top = Math.min(by, ov.y), bottom = Math.max(by + bh, ov.y + ov.h);
       bx = left; by = top; bw = right - left; bh = bottom - top;
     }
-    Object.assign(p.rect, { shape, color: boxColor, x: bx, y: by, w: bw, h: bh });
+    Object.assign(p.rect, { shape, color: boxColor, alpha, x: bx, y: by, w: bw, h: bh });
     t.x = cv.width / 2 - tw / 2;
     t.y = yCenter - th / 2;
   }
@@ -1101,7 +1124,7 @@ function applySubStyle() {
 
 /* 일괄 스타일 컨트롤 연결 */
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
-['ssShape', 'ssBoxColor', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssY', 'ssPadX', 'ssPadY']
+['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssY', 'ssPadX', 'ssPadY']
   .forEach(id => $(id).addEventListener('input', applySubStyle));
 
 $('aiBtn').onclick = async () => {
@@ -1138,19 +1161,21 @@ $('aiBtn').onclick = async () => {
       if (last && last.chinese && last.chinese === s.chinese && s.t0 - last.t1 < 0.8) last.t1 = s.t1;
       else merged.push(s);
     }
-    const finals = merged.filter(s => s.korean && s.bbox.h < cv.height * 0.25);
+    const finals = merged.filter(s => s.bbox.h < cv.height * 0.25);
     if (!finals.length) {
-      alert('자막을 찾았지만 번역할 내용이 없었습니다.');
+      alert('자막을 찾았지만 사용할 수 있는 구간이 없었습니다.');
       return;
     }
+    const translated = finals.filter(s => s.korean);
 
     // 감지된 자막들의 중앙값 크기·위치로 일괄 스타일 기본값 설정
     const med = arr => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)];
-    const medH = med(finals.map(s => s.bbox.h));
-    const medCY = med(finals.map(s => s.bbox.y + s.bbox.h / 2));
+    const base = translated.length ? translated : finals;
+    const medH = med(base.map(s => s.bbox.h));
+    const medCY = med(base.map(s => s.bbox.y + s.bbox.h / 2));
     $('ssSize').value = Math.max(14, Math.round(medH * 0.5));
     $('ssY').value = Math.min(98, Math.max(5, Math.round(medCY / cv.height * 100)));
-    $('ssBoxColor').value = finals[Math.floor(finals.length / 2)].bg;
+    $('ssBoxColor').value = base[Math.floor(base.length / 2)].bg;
     $('ssPadX').value = Math.max(10, Math.round(cv.width * 0.018));
     $('ssPadY').value = Math.max(6, Math.round(medH * 0.18));
 
@@ -1158,8 +1183,11 @@ $('aiBtn').onclick = async () => {
     applySubStyle();
     $('subStyleBox').style.display = 'block';
     refreshList();
-    aiStatus(`완료! 자막 ${finals.length}개 구간 적용`);
-    alert(`자동 번역 완료!\n\n자막 ${finals.length}개 구간에 가리개+한글 텍스트를 추가했습니다.\n\n· 크기·색·위치가 마음에 안 들면 "🎨 자막 일괄 스타일"에서 한 번에 바꿀 수 있습니다.\n· 글자 내용은 "추가된 항목"에서 항목별로 수정하세요.`);
+    const skipped = finals.length - translated.length;
+    aiStatus(`완료! 자막 ${translated.length}개 번역 적용` + (skipped ? ` (${skipped}개는 가리개만)` : ''));
+    alert(`자동 번역 완료!\n\n자막 ${translated.length}개 구간에 가리개+한글 텍스트를 추가했습니다.`
+      + (skipped ? `\n읽지 못한 ${skipped}개 구간은 가리개만 넣었습니다. (필요하면 텍스트 도구로 글자 추가)` : '')
+      + `\n\n· 크기·색·위치·불투명도는 "🎨 자막 일괄 스타일"에서 한 번에 바꿀 수 있습니다.\n· 글자 내용은 "추가된 항목"에서 항목별로 수정하세요.`);
   } catch (err) {
     aiStatus('');
     $('aiProgRow').style.display = 'none';
