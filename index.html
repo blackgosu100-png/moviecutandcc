@@ -1679,11 +1679,44 @@ const AI_PROVIDERS = {
     batchWait: 300,
     retryWait: 8000,
   },
+  codex: {
+    name: 'Codex CLI',
+    keyUrl: '',
+    placeholder: '',
+    keyHelp: '',
+    needsKey: false,     // 내 컴퓨터의 Codex CLI 로그인(ChatGPT 구독)을 그대로 사용
+    batchWait: 300,
+    retryWait: 8000,
+  },
 };
+/* Codex 연결 프로그램(codex-bridge.js)이 켜져 있을 때만 옵션이 나타난다.
+   수강생 배포 시 HTML만 전달하면 이 옵션은 보이지 않는다. */
+const CODEX_BRIDGE = 'http://127.0.0.1:8787';
+const SAVED_AI_PROVIDER = localStorage.getItem('aiProvider') || '';
+(async () => {
+  try {
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(), 1500);
+    const r = await fetch(CODEX_BRIDGE + '/ping', { signal: ctl.signal });
+    const j = await r.json();
+    if (!j || j.service !== 'codex-bridge') return;
+    const opt = document.createElement('option');
+    opt.value = 'codex';
+    opt.textContent = 'Codex CLI (내 컴퓨터) — 강사 전용';
+    $('aiProvider').appendChild(opt);
+    if (SAVED_AI_PROVIDER === 'codex') {
+      $('aiProvider').value = 'codex';
+      syncAiProviderUi();
+    }
+  } catch (e) { /* 브리지 꺼짐 → 옵션 숨김 */ }
+})();
 function curAiProvider() { return AI_PROVIDERS[$('aiProvider').value] ? $('aiProvider').value : 'gemini'; }
 function aiKeyStorage() { return 'aiKey_' + curAiProvider(); }
 function syncAiProviderUi() {
   const p = AI_PROVIDERS[curAiProvider()];
+  const noKey = p.needsKey === false;
+  $('aiKey').parentElement.style.display = noKey ? 'none' : 'flex';
+  $('aiKeyPage').parentElement.style.display = noKey ? 'none' : 'flex';
   $('aiKey').value = localStorage.getItem(aiKeyStorage()) || '';
   $('aiKey').placeholder = p.placeholder;
   $('aiKeyPage').title = p.keyHelp;
@@ -2003,7 +2036,28 @@ async function translateSegs(segs, key) {
 function aiTranslateBatch(provider, key, batch) {
   if (provider === 'openai') return openaiBatch(key, batch);
   if (provider === 'claude') return claudeBatch(key, batch);
+  if (provider === 'codex') return codexBatch(batch);
   return geminiBatch(key, batch);
+}
+
+/* 내 컴퓨터에서 실행 중인 codex-bridge.js를 통해 Codex CLI로 번역 (강사 전용) */
+async function codexBatch(batch) {
+  let res;
+  try {
+    res = await fetch(CODEX_BRIDGE + '/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: AI_PROMPT + batch.length,
+        images: batch.map(s => s.b64)
+      })
+    });
+  } catch (e) {
+    throw new Error('Codex 연결 프로그램이 꺼져 있습니다.\ncodex-bridge.bat(또는 node codex-bridge.js)를 먼저 실행해 주세요.');
+  }
+  const j = await res.json().catch(() => ({}));
+  if (j.error) throw new Error('Codex 실행 오류: ' + j.error);
+  return parseAiJson(j.text || '[]');
 }
 
 /* AI 응답에서 JSON 배열만 안전하게 추출 */
@@ -2241,12 +2295,14 @@ $('aiBtn').onclick = async () => {
   if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
   const conf = AI_PROVIDERS[curAiProvider()];
   const key = $('aiKey').value.trim();
-  if (!key) {
-    alert(conf.name + ' API 키를 먼저 입력해 주세요.\n"키 발급 페이지 열기" 버튼으로 키를 만들 수 있습니다.\n\n' + conf.keyHelp);
-    window.open(conf.keyUrl, '_blank');
-    return;
+  if (conf.needsKey !== false) {
+    if (!key) {
+      alert(conf.name + ' API 키를 먼저 입력해 주세요.\n"키 발급 페이지 열기" 버튼으로 키를 만들 수 있습니다.\n\n' + conf.keyHelp);
+      window.open(conf.keyUrl, '_blank');
+      return;
+    }
+    localStorage.setItem(aiKeyStorage(), key);
   }
-  localStorage.setItem(aiKeyStorage(), key);
 
   aiRunning = true; aiCancel = false;
   $('aiBtn').disabled = true; $('exportBtn').disabled = true;
