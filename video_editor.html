@@ -916,7 +916,7 @@ $('exportBtn').onclick = async () => {
    AI 자동 번역 (중국어 자막 감지 → Gemini 번역 → 가리개+텍스트 생성)
    ================================================================== */
 const AI_MODEL = 'gemini-2.5-flash';
-const AI_PROMPT = '아래 이미지들은 상품 홍보 영상에서 잘라낸 자막 부분입니다. 각 이미지에 보이는 중국어 자막을 읽고 자연스러운 한국어 홍보 문구 톤으로 번역하세요. 반드시 이미지 순서대로 JSON 배열로만 답하세요. 형식: [{"index":0,"chinese":"원문","korean":"번역"}] index는 0부터 시작하는 이미지 순번입니다. 자막이 없거나 읽을 수 없으면 chinese와 korean을 빈 문자열로 두세요. 이미지 개수: ';
+const AI_PROMPT = '아래 이미지들은 상품 홍보 영상에서 잘라낸 자막 부분입니다. 각 이미지에 보이는 중국어 자막을 읽고 한국 쇼핑몰 숏폼 광고 자막 톤으로 번역하세요. 직역하지 말고 짧고 구매욕을 자극하는 카피로 다듬으세요. 번역 예시: "旋转折叠 小空间从容应对"→"좁은 공간도 여유롭게", "真空吸附 承重力强"→"진공 흡착으로 튼튼하게 고정", "一秒上墙 快装吸盘"→"1초 설치, 간편 흡착", "全家衣物 一次晾晒"→"온 가족 빨래도 한 번에", "太空铝材 不惧潮湿 防腐防锈"→"습기와 녹에 강한 알루미늄 소재". 반드시 이미지 순서대로 JSON 배열로만 답하세요. 형식: [{"index":0,"chinese":"원문","korean":"번역"}] index는 0부터 시작하는 이미지 순번입니다. 자막이 없거나 읽을 수 없으면 chinese와 korean을 빈 문자열로 두세요. 이미지 개수: ';
 const AI_SAMPLE_STEP = 0.35;   // 자막 감지 샘플 간격(초)
 const AI_BOTTOM_RATIO = 0.30;  // 화면 하단 몇 %에서 자막을 찾을지
 const AI_MIN_DUR = 0.25;       // 이보다 짧은 자막 구간은 무시(초)
@@ -944,38 +944,80 @@ function seekTo(t) {
   });
 }
 
-/* 흰색/노란색 자막 픽셀 마스크
-   - 주변(상하좌우 4px)에 어두운 픽셀이 있는 글자만 인정
-   - 하늘처럼 넓게 밝은 배경이 자막으로 오인되는 것을 막는다 */
-function analyzeBand(img, w, h) {
-  const d = img.data;
-  const bright = new Uint8Array(w * h);
-  for (let p = 0, i = 0; p < w * h; p++, i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    if ((r > 195 && g > 195 && b > 195) || (r > 200 && g > 170 && b < 130)) bright[p] = 1;
-  }
-  const mask = new Uint8Array(w * h);
-  let count = 0;
-  const off = 4;
-  // 절대값(450) 또는 글자보다 충분히 어두우면(차이 160+) 윤곽으로 인정
-  // → 반투명 자막 박스가 밝은 하늘 위에서 연해져도 글자를 놓치지 않는다
-  const darkAt = (x, y, pSum) => {
-    const i = (y * w + x) * 4;
-    const s = d[i] + d[i + 1] + d[i + 2];
-    return s < 450 || s < pSum - 160;
-  };
-  for (let y = 0; y < h; y++) {
+/* 분리형 그레이스케일 min/max 필터 (탑햇 연산용) */
+function slideMinMax(src, dst, w, h, r, horiz, isMin) {
+  if (horiz) {
+    for (let y = 0; y < h; y++) {
+      const base = y * w;
+      for (let x = 0; x < w; x++) {
+        let m = isMin ? 255 : 0;
+        const lo = Math.max(0, x - r), hi = Math.min(w - 1, x + r);
+        for (let k = lo; k <= hi; k++) {
+          const v = src[base + k];
+          if (isMin ? v < m : v > m) m = v;
+        }
+        dst[base + x] = m;
+      }
+    }
+  } else {
     for (let x = 0; x < w; x++) {
-      const p = y * w + x;
-      if (!bright[p]) continue;
-      const i = p * 4;
-      const pSum = d[i] + d[i + 1] + d[i + 2];
-      if ((x >= off && darkAt(x - off, y, pSum)) || (x + off < w && darkAt(x + off, y, pSum)) ||
-          (y >= off && darkAt(x, y - off, pSum)) || (y + off < h && darkAt(x, y + off, pSum))) {
-        mask[p] = 1; count++;
+      for (let y = 0; y < h; y++) {
+        let m = isMin ? 255 : 0;
+        const lo = Math.max(0, y - r), hi = Math.min(h - 1, y + r);
+        for (let k = lo; k <= hi; k++) {
+          const v = src[k * w + x];
+          if (isMin ? v < m : v > m) m = v;
+        }
+        dst[y * w + x] = m;
       }
     }
   }
+}
+
+/* 자막 글자 픽셀 마스크 (탑햇 방식)
+   - 넓게 밝은 영역(하늘·흰옷)은 지워지고 가는 밝은 획(글자)만 남는다
+   - 41px 이상 이어지는 가로/세로 선(창틀·자막박스 테두리)은 제거 */
+function analyzeBand(img, w, h) {
+  const d = img.data;
+  const n = w * h;
+  const gray = new Uint8Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    gray[p] = r > g ? (r > b ? r : b) : (g > b ? g : b);   // 흰색·노란색 글자 모두 밝게
+  }
+  const t1 = new Uint8Array(n), t2 = new Uint8Array(n);
+  slideMinMax(gray, t1, w, h, 4, true, true);    // 가로 침식
+  slideMinMax(t1, t2, w, h, 4, false, true);     // 세로 침식
+  slideMinMax(t2, t1, w, h, 4, true, false);     // 가로 팽창
+  slideMinMax(t1, t2, w, h, 4, false, false);    // 세로 팽창 → t2 = 열림(opening)
+  const mask = new Uint8Array(n);
+  for (let p = 0; p < n; p++) {
+    if (gray[p] - t2[p] > 55 && gray[p] > 160) mask[p] = 1;
+  }
+  const LINE = 41;   // 글자 한 획(~25px)보다 길고 창틀·테두리보다 짧은 기준
+  for (let y = 0; y < h; y++) {
+    const base = y * w;
+    let run = 0;
+    for (let x = 0; x <= w; x++) {
+      if (x < w && mask[base + x]) run++;
+      else {
+        if (run >= LINE) for (let k = x - run; k < x; k++) mask[base + k] = 0;
+        run = 0;
+      }
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let run = 0;
+    for (let y = 0; y <= h; y++) {
+      if (y < h && mask[y * w + x]) run++;
+      else {
+        if (run >= LINE) for (let k = y - run; k < y; k++) mask[k * w + x] = 0;
+        run = 0;
+      }
+    }
+  }
+  let count = 0;
+  for (let p = 0; p < n; p++) count += mask[p];
   return { mask, count };
 }
 
@@ -998,28 +1040,39 @@ function sameSig(a, b) {
   if (!a || !b) return false;
   let inter = 0, uni = 0;
   for (let i = 0; i < a.length; i++) { if (a[i] | b[i]) uni++; if (a[i] & b[i]) inter++; }
-  return uni === 0 ? true : inter / uni > 0.35;   // 배경 변화로 같은 자막이 쪼개지는 것 완화
+  return uni === 0 ? true : inter / uni > 0.55;   // 탑햇 마스크는 깨끗해서 엄격해도 안정적
 }
 
 /* 마스크에서 자막 영역 찾기
-   - 글자가 가장 많은 줄(피크)을 중심으로 자막 줄 높이를 잡고
-   - 그 줄 범위 안에서만 가로 폭을 계산해 박스가 엉뚱하게 커지는 것을 막는다 */
+   - 픽셀이 가장 밀집된 36px 글줄 띠를 찾는다 (테두리 한 줄짜리 피크에 낚이지 않게)
+   - 줄 높이 10~70px, 폭 50px 이상, 밀도 8% 이상만 자막으로 인정 */
 function bboxOf(mask, w, h) {
-  const rowC = new Uint32Array(h);
+  const rowC = new Float64Array(h);
   let total = 0;
   for (let y = 0; y < h; y++) {
     let c = 0;
-    for (let x = 0; x < w; x++) if (mask[y * w + x]) c++;
+    for (let x = 0; x < w; x++) c += mask[y * w + x];
     rowC[y] = c; total += c;
   }
   if (!total) return null;
-  let peak = 0, py = 0;
-  for (let y = 0; y < h; y++) if (rowC[y] > peak) { peak = rowC[y]; py = y; }
+  const win = Math.min(36, h);
+  let sum = 0;
+  for (let y = 0; y < win; y++) sum += rowC[y];
+  let best = sum, wy = 0;
+  for (let y = win; y < h; y++) {
+    sum += rowC[y] - rowC[y - win];
+    if (sum > best) { best = sum; wy = y - win + 1; }
+  }
+  let peak = 0;
+  for (let y = wy; y < wy + win; y++) if (rowC[y] > peak) peak = rowC[y];
   if (peak < 6) return null;
-  let y1 = py, y2 = py;
-  while (y1 > 0 && rowC[y1 - 1] >= peak * 0.12) y1--;
-  while (y2 < h - 1 && rowC[y2 + 1] >= peak * 0.12) y2++;
-  const colC = new Uint32Array(w);
+  const th = Math.max(2, peak * 0.12);
+  let y1 = -1, y2 = -1;
+  for (let y = wy; y < wy + win && y < h; y++) {
+    if (rowC[y] >= th) { if (y1 < 0) y1 = y; y2 = y; }
+  }
+  if (y1 < 0) return null;
+  const colC = new Float64Array(w);
   let sub = 0;
   for (let y = y1; y <= y2; y++) for (let x = 0; x < w; x++) {
     if (mask[y * w + x]) { colC[x]++; sub++; }
@@ -1030,7 +1083,11 @@ function bboxOf(mask, w, h) {
   for (let x = 0; x < w; x++) { acc += colC[x]; if (acc > trim) { x1 = x; break; } }
   acc = 0;
   for (let x = w - 1; x >= 0; x--) { acc += colC[x]; if (acc > trim) { x2 = x; break; } }
-  if (x2 <= x1 || y2 <= y1) return null;
+  const bw = x2 - x1 + 1, bh = y2 - y1 + 1;
+  if (bh < 10 || bh > 70 || bw < 50) return null;
+  let inBox = 0;
+  for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) inBox += mask[y * w + x];
+  if (inBox / (bw * bh) < 0.08) return null;
   return { x1, y1, x2, y2 };
 }
 
@@ -1071,54 +1128,74 @@ function cropB64(bb, bandY) {
   return ccv.toDataURL('image/jpeg', 0.85).split(',')[1];
 }
 
-/* 1단계: 영상을 훑으며 자막 구간 찾기 */
-async function scanSubtitles() {
-  const vw = vid.videoWidth, vh = vid.videoHeight;
-  const scale = Math.min(1, 960 / vw);
-  scv.width = Math.round(vw * scale); scv.height = Math.round(vh * scale);
-  const bandY = Math.round(scv.height * (1 - AI_BOTTOM_RATIO));
-  const bandH = scv.height - bandY;
+/* row0~row1 행 범위에서 자막 구간 스캔 */
+async function scanRange(row0, row1, scale, label) {
   const dur = vid.duration;
-
+  const w = scv.width, h = row1 - row0;
   const toVideoBox = bb => {
     const pad = 10;
     const x1 = Math.max(0, bb.x1 - pad), y1 = Math.max(0, bb.y1 - pad);
-    const x2 = Math.min(scv.width - 1, bb.x2 + pad);
-    const y2 = Math.min(bandH - 1, bb.y2 + pad);
-    return { x: x1 / scale, y: (bandY + y1) / scale, w: (x2 - x1 + 1) / scale, h: (y2 - y1 + 1) / scale };
+    const x2 = Math.min(w - 1, bb.x2 + pad);
+    const y2 = Math.min(h - 1, bb.y2 + pad);
+    return { x: x1 / scale, y: (row0 + y1) / scale, w: (x2 - x1 + 1) / scale, h: (y2 - y1 + 1) / scale };
   };
-
   const segs = [];
   let cur = null, curSig = null;
   const close = () => {
     if (cur && (cur.t1 - cur.t0) >= AI_MIN_DUR) segs.push(cur);
     cur = null; curSig = null;
   };
-
   for (let t = 0.05; t < dur; t += AI_SAMPLE_STEP) {
     if (aiCancel) break;
     await seekTo(t);
     sctx.drawImage(vid, 0, 0, scv.width, scv.height);
-    const img = sctx.getImageData(0, bandY, scv.width, bandH);
-    const { mask, count } = analyzeBand(img, scv.width, bandH);
-    const present = count > Math.max(80, scv.width * bandH * 0.0015);
+    const img = sctx.getImageData(0, row0, w, h);
+    const { mask, count } = analyzeBand(img, w, h);
+    const present = count > Math.max(80, w * h * 0.0015);
     if (present) {
-      const sig = aiSignature(mask, scv.width, bandH);
+      const sig = aiSignature(mask, w, h);
       if (cur && sameSig(curSig, sig)) {
         cur.t1 = t;
       } else {
         close();
-        const bb = bboxOf(mask, scv.width, bandH);
+        const bb = bboxOf(mask, w, h);
         if (bb) {
-          cur = { t0: t, t1: t, bbox: toVideoBox(bb), b64: cropB64(bb, bandY),
-                  bg: sampleBg(img, bb, scv.width, bandH, mask), chinese: '', korean: '' };
+          cur = { t0: t, t1: t, bbox: toVideoBox(bb), b64: cropB64(bb, row0),
+                  bg: sampleBg(img, bb, w, h, mask), chinese: '', korean: '',
+                  scvYc: row0 + (bb.y1 + bb.y2) / 2 };
           curSig = sig;
         }
       }
     } else close();
-    aiStatus(`자막 찾는 중... ${Math.round(t / dur * 100)}% (발견 ${segs.length + (cur ? 1 : 0)}개)`);
+    aiStatus(`자막 찾는 중 (${label})... ${Math.round(t / dur * 100)}% (발견 ${segs.length + (cur ? 1 : 0)}개)`);
   }
   close();
+  return segs;
+}
+
+/* 2패스 스캔: 1패스로 자막 줄의 세로 위치를 찾고, 2패스는 그 줄 주변만 정밀 스캔
+   → 화면 다른 곳의 밝은 노이즈(옷걸이·니트 등)가 자막 감지를 방해하지 못한다 */
+async function scanSubtitles() {
+  const vw = vid.videoWidth;
+  const scale = Math.min(1, 960 / vw);
+  scv.width = Math.round(vw * scale); scv.height = Math.round(vid.videoHeight * scale);
+  const bandY = Math.round(scv.height * (1 - AI_BOTTOM_RATIO));
+
+  const pass1 = await scanRange(bandY, scv.height, scale, '1/2');
+  if (aiCancel || !pass1.length) return [];
+
+  // 구간 길이 가중 중앙값으로 자막 줄 위치 결정
+  const ycs = [];
+  for (const s of pass1) {
+    const n = Math.max(1, Math.round((s.t1 - s.t0) / AI_SAMPLE_STEP));
+    for (let i = 0; i < n; i++) ycs.push(s.scvYc);
+  }
+  ycs.sort((a, b) => a - b);
+  const ycMed = ycs[ycs.length >> 1];
+  const strip0 = Math.max(0, Math.round(ycMed - 45));
+  const strip1 = Math.min(scv.height, Math.round(ycMed + 45));
+
+  const segs = await scanRange(strip0, strip1, scale, '2/2');
   for (const s of segs) s.t1 += AI_SAMPLE_STEP * 0.6;
   return segs;
 }
