@@ -216,22 +216,32 @@
     <div class="section">
       <h2>🤖 AI 자동 번역 (중국어 → 한글)</h2>
       <div class="row">
-        <input type="text" id="aiKey" placeholder="Gemini API 키 붙여넣기" style="flex:1">
+        <label>AI 선택</label>
+        <select id="aiProvider" style="flex:1">
+          <option value="gemini">Gemini (구글) — 무료 키 가능</option>
+          <option value="openai">ChatGPT (OpenAI) — 유료, 한도 넉넉</option>
+          <option value="claude">Claude (Anthropic) — 유료, 한도 넉넉</option>
+        </select>
       </div>
       <div class="row">
-        <button id="aiKeyPage" style="font-size:12px">🔑 무료 키 발급 페이지 열기</button>
+        <input type="text" id="aiKey" placeholder="API 키 붙여넣기" style="flex:1">
+      </div>
+      <div class="row">
+        <button id="aiKeyPage" style="font-size:12px">🔑 키 발급 페이지 열기</button>
       </div>
       <button id="aiBtn" class="primary full">🤖 중국어 자막 자동 번역</button>
       <div class="row" id="aiProgRow" style="display:none; margin-top:6px">
         <span id="aiStatus" style="flex:1; font-size:12px; color:#7ee087"></span>
         <button id="aiCancelBtn" class="danger" style="font-size:11px; padding:4px 8px">중단</button>
       </div>
-      <div class="hint">
+      <div class="hint" id="aiHint">
         영상 하단의 중국어 자막을 자동으로 찾아 한글로 번역한 뒤,
         가리개+한글 텍스트를 표시 구간까지 맞춰서 자동 추가합니다.
         어긋난 부분만 아래 2단계 도구로 손보면 됩니다.<br>
-        · 키 발급: 위 버튼 → 구글 로그인 → "API 키 만들기" → 복사해서 붙여넣기 (무료)<br>
-        · 키는 이 컴퓨터(브라우저)에만 저장됩니다.
+        · <b>수강생 추천: Gemini</b> — 무료 키로 쓸 수 있지만 무료 한도 때문에 중간중간 대기합니다.<br>
+        · <b>한도가 답답하면: ChatGPT 또는 Claude</b> — 유료 키가 필요하지만 대기 없이 빠르게
+        진행됩니다. (영상 1개 번역 비용은 수십 원 수준)<br>
+        · AI마다 키를 따로 저장하므로 골라가며 쓸 수 있습니다. 키는 이 컴퓨터(브라우저)에만 저장됩니다.
       </div>
     </div>
 
@@ -1643,9 +1653,52 @@ const AI_SAMPLE_STEP = 0.35;   // 자막 감지 샘플 간격(초)
 const AI_BOTTOM_RATIO = 0.30;  // 화면 하단 몇 %에서 자막을 찾을지
 const AI_MIN_DUR = 0.25;       // 이보다 짧은 자막 구간은 무시(초)
 
-$('aiKey').value = localStorage.getItem('geminiApiKey') || '';
-$('aiKey').addEventListener('change', () => localStorage.setItem('geminiApiKey', $('aiKey').value.trim()));
-$('aiKeyPage').onclick = () => window.open('https://aistudio.google.com/apikey', '_blank');
+/* ---------- AI 제공사 선택 (Gemini / OpenAI / Claude) ---------- */
+const AI_PROVIDERS = {
+  gemini: {
+    name: 'Gemini',
+    keyUrl: 'https://aistudio.google.com/apikey',
+    placeholder: 'Gemini API 키 붙여넣기 (AIza... 로 시작)',
+    keyHelp: '키 발급: 버튼 클릭 → 구글 로그인 → "API 키 만들기" → 복사 (무료)',
+    batchWait: 6500,    // 무료 한도 보호를 위한 묶음 간 대기(ms)
+    retryWait: 25000,   // 429 발생 시 대기(ms)
+  },
+  openai: {
+    name: 'ChatGPT(OpenAI)',
+    keyUrl: 'https://platform.openai.com/api-keys',
+    placeholder: 'OpenAI API 키 붙여넣기 (sk-... 로 시작)',
+    keyHelp: '키 발급: 버튼 클릭 → OpenAI 로그인 → "Create new secret key" (유료, 카드 등록 필요)',
+    batchWait: 300,
+    retryWait: 8000,
+  },
+  claude: {
+    name: 'Claude(Anthropic)',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+    placeholder: 'Claude API 키 붙여넣기 (sk-ant-... 로 시작)',
+    keyHelp: '키 발급: 버튼 클릭 → Anthropic 로그인 → "Create Key" (유료, 카드 등록 필요)',
+    batchWait: 300,
+    retryWait: 8000,
+  },
+};
+function curAiProvider() { return AI_PROVIDERS[$('aiProvider').value] ? $('aiProvider').value : 'gemini'; }
+function aiKeyStorage() { return 'aiKey_' + curAiProvider(); }
+function syncAiProviderUi() {
+  const p = AI_PROVIDERS[curAiProvider()];
+  $('aiKey').value = localStorage.getItem(aiKeyStorage()) || '';
+  $('aiKey').placeholder = p.placeholder;
+  $('aiKeyPage').title = p.keyHelp;
+  localStorage.setItem('aiProvider', curAiProvider());
+}
+// 예전 버전에서 저장한 Gemini 키를 새 저장 방식으로 옮겨준다
+if (localStorage.getItem('geminiApiKey') && !localStorage.getItem('aiKey_gemini')) {
+  localStorage.setItem('aiKey_gemini', localStorage.getItem('geminiApiKey'));
+}
+$('aiProvider').value = localStorage.getItem('aiProvider') || 'gemini';
+if (!AI_PROVIDERS[$('aiProvider').value]) $('aiProvider').value = 'gemini';
+syncAiProviderUi();
+$('aiProvider').onchange = syncAiProviderUi;
+$('aiKey').addEventListener('change', () => localStorage.setItem(aiKeyStorage(), $('aiKey').value.trim()));
+$('aiKeyPage').onclick = () => window.open(AI_PROVIDERS[curAiProvider()].keyUrl, '_blank');
 
 let aiRunning = false, aiCancel = false;
 $('aiCancelBtn').onclick = () => { aiCancel = true; aiStatus('중단하는 중...'); };
@@ -1922,14 +1975,16 @@ async function scanSubtitles() {
   return segs;
 }
 
-/* 2단계: Gemini로 묶음 번역 (무료 한도에 맞춰 천천히) */
+/* 2단계: 선택한 AI로 묶음 번역 */
 async function translateSegs(segs, key) {
+  const provider = curAiProvider();
+  const conf = AI_PROVIDERS[provider];
   const BATCH = 8;
   for (let i = 0; i < segs.length; i += BATCH) {
     if (aiCancel) return;
     const batch = segs.slice(i, i + BATCH);
-    aiStatus(`번역 중... ${Math.min(i + BATCH, segs.length)}/${segs.length}`);
-    const items = await geminiBatch(key, batch);
+    aiStatus(`${conf.name}(으)로 번역 중... ${Math.min(i + BATCH, segs.length)}/${segs.length}`);
+    const items = await aiTranslateBatch(provider, key, batch);
     for (const it of items) {
       if (it && Number.isInteger(it.index) && batch[it.index]) {
         batch[it.index].chinese = (it.chinese || '').trim();
@@ -1937,10 +1992,106 @@ async function translateSegs(segs, key) {
       }
     }
     if (i + BATCH < segs.length) {
-      aiStatus(`무료 한도 조절을 위해 잠시 대기... (${Math.min(i + BATCH, segs.length)}/${segs.length} 완료)`);
-      await aiSleep(6500);
+      if (provider === 'gemini') {
+        aiStatus(`무료 한도 조절을 위해 잠시 대기... (${Math.min(i + BATCH, segs.length)}/${segs.length} 완료)`);
+      }
+      await aiSleep(conf.batchWait);
     }
   }
+}
+
+function aiTranslateBatch(provider, key, batch) {
+  if (provider === 'openai') return openaiBatch(key, batch);
+  if (provider === 'claude') return claudeBatch(key, batch);
+  return geminiBatch(key, batch);
+}
+
+/* AI 응답에서 JSON 배열만 안전하게 추출 */
+function parseAiJson(text) {
+  try {
+    const v = JSON.parse(text);
+    if (Array.isArray(v)) return v;
+    if (v && Array.isArray(v.items)) return v.items;
+  } catch (e) {}
+  const m = String(text).match(/\[[\s\S]*\]/);
+  if (m) { try { return JSON.parse(m[0]); } catch (e) {} }
+  return [];
+}
+
+async function openaiBatch(key, batch) {
+  const content = [{ type: 'text', text: AI_PROMPT + batch.length }];
+  for (const s of batch) {
+    content.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + s.b64, detail: 'high' } });
+  }
+  const conf = AI_PROVIDERS.openai;
+  for (let tryN = 0; tryN < 5; tryN++) {
+    if (aiCancel) return [];
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: 2000,
+        temperature: 0.1,
+        messages: [{ role: 'user', content }]
+      })
+    });
+    if (res.status === 429 || res.status >= 500) {
+      aiStatus(`사용량 한도 대기 중... (${Math.round(conf.retryWait/1000)}초 후 자동 재시도 ${tryN + 1}/5)`);
+      await aiSleep(conf.retryWait);
+      continue;
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (j.error && j.error.message) || ('HTTP ' + res.status);
+      if (res.status === 401)
+        throw new Error('OpenAI API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.\n(' + msg + ')');
+      throw new Error(msg);
+    }
+    const text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '[]';
+    return parseAiJson(text);
+  }
+  throw new Error('사용량 한도에 계속 걸립니다. 잠시 뒤 다시 시도해 주세요.');
+}
+
+async function claudeBatch(key, batch) {
+  const content = [{ type: 'text', text: AI_PROMPT + batch.length }];
+  for (const s of batch) {
+    content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: s.b64 } });
+  }
+  const conf = AI_PROVIDERS.claude;
+  for (let tryN = 0; tryN < 5; tryN++) {
+    if (aiCancel) return [];
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content }]
+      })
+    });
+    if (res.status === 429 || res.status === 529 || res.status >= 500) {
+      aiStatus(`사용량 한도 대기 중... (${Math.round(conf.retryWait/1000)}초 후 자동 재시도 ${tryN + 1}/5)`);
+      await aiSleep(conf.retryWait);
+      continue;
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (j.error && j.error.message) || ('HTTP ' + res.status);
+      if (res.status === 401 || res.status === 403)
+        throw new Error('Claude API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.\n(' + msg + ')');
+      throw new Error(msg);
+    }
+    const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('') || '[]';
+    return parseAiJson(text);
+  }
+  throw new Error('사용량 한도에 계속 걸립니다. 잠시 뒤 다시 시도해 주세요.');
 }
 
 async function geminiBatch(key, batch) {
@@ -1970,7 +2121,7 @@ async function geminiBatch(key, batch) {
     }
     const text = (j.candidates && j.candidates[0] && j.candidates[0].content
                   && j.candidates[0].content.parts && j.candidates[0].content.parts[0].text) || '[]';
-    try { return JSON.parse(text); } catch (e) { return []; }
+    return parseAiJson(text);
   }
   throw new Error('무료 사용량 한도에 계속 걸립니다. 1~2분 뒤 다시 시도해 주세요.');
 }
@@ -2088,13 +2239,14 @@ $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option
 $('aiBtn').onclick = async () => {
   if (aiRunning || exporting) return;
   if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+  const conf = AI_PROVIDERS[curAiProvider()];
   const key = $('aiKey').value.trim();
   if (!key) {
-    alert('Gemini API 키를 먼저 입력해 주세요.\n"무료 키 발급 페이지 열기" 버튼으로 무료 키를 만들 수 있습니다.');
-    window.open('https://aistudio.google.com/apikey', '_blank');
+    alert(conf.name + ' API 키를 먼저 입력해 주세요.\n"키 발급 페이지 열기" 버튼으로 키를 만들 수 있습니다.\n\n' + conf.keyHelp);
+    window.open(conf.keyUrl, '_blank');
     return;
   }
-  localStorage.setItem('geminiApiKey', key);
+  localStorage.setItem(aiKeyStorage(), key);
 
   aiRunning = true; aiCancel = false;
   $('aiBtn').disabled = true; $('exportBtn').disabled = true;
