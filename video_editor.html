@@ -138,8 +138,39 @@
         <span id="aiStatus" style="flex:1; font-size:12px; color:#7ee087"></span>
         <button id="aiCancelBtn" class="danger" style="font-size:11px; padding:4px 8px">중단</button>
       </div>
-      <div id="subStyleBox" style="display:none; margin-top:10px; border-top:1px solid #2e3850; padding-top:8px">
-        <div class="row"><label style="color:#ffb648; font-weight:bold">🎨 자막 일괄 스타일</label></div>
+      <div class="hint">
+        영상 하단의 중국어 자막을 자동으로 찾아 한글로 번역한 뒤,
+        가리개+한글 텍스트를 표시 구간까지 맞춰서 자동 추가합니다.
+        어긋난 부분만 아래 2단계 도구로 손보면 됩니다.<br>
+        · 키 발급: 위 버튼 → 구글 로그인 → "API 키 만들기" → 복사해서 붙여넣기 (무료)<br>
+        · 키는 이 컴퓨터(브라우저)에만 저장됩니다.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>2단계. 중국어 가리기 / 글자 넣기</h2>
+      <div class="row">
+        <button class="toolBtn active" data-tool="select">↖ 선택</button>
+        <button class="toolBtn" data-tool="rect">⬛ 가리개</button>
+        <button class="toolBtn" data-tool="text">가 텍스트</button>
+        <select id="shapeSel" title="가리개 모양">
+          <option value="rect">⬛ 네모</option>
+          <option value="round">▢ 둥근네모</option>
+          <option value="ellipse">⚫ 원형</option>
+          <option value="mosaic">🔲 모자이크</option>
+        </select>
+      </div>
+      <div class="row" id="emojiRow" style="gap:3px"></div>
+      <div class="hint">
+        · <b>가리개</b>: 모양을 고르고 중국어 부분을 드래그하면 가려집니다.<br>
+        &nbsp;&nbsp;<b>모자이크</b>를 고르면 흐림 처리로 자연스럽게 가려집니다.<br>
+        · <b>텍스트</b>: 영상 위 원하는 위치를 클릭하면 글자가 추가됩니다.<br>
+        · <b>이모티콘</b>: 위 그림을 누르면 영상에 추가됩니다. (글자처럼 이동/크기조절)<br>
+        · <b>선택</b>: 클릭해서 옮기고, 오른쪽 아래 모서리를 잡아 크기 조절.
+      </div>
+      <div id="propBox" style="display:none; margin-top:8px"></div>
+      <div id="subStyleBox" style="display:none; margin-top:10px; border:1px solid #e08a00; border-radius:6px; padding:10px; background:#0f1420">
+        <div class="row"><label style="color:#ffb648; font-weight:bold">🎨 자막 일괄 스타일 (AI 자막 전체 적용)</label></div>
         <div class="row">
           <label>모양</label>
           <select id="ssShape">
@@ -172,37 +203,6 @@
         </div>
         <div class="hint">바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다. 글자 내용만 "추가된 항목"에서 항목별로 수정하세요.</div>
       </div>
-      <div class="hint">
-        영상 하단의 중국어 자막을 자동으로 찾아 한글로 번역한 뒤,
-        가리개+한글 텍스트를 표시 구간까지 맞춰서 자동 추가합니다.
-        어긋난 부분만 아래 2단계 도구로 손보면 됩니다.<br>
-        · 키 발급: 위 버튼 → 구글 로그인 → "API 키 만들기" → 복사해서 붙여넣기 (무료)<br>
-        · 키는 이 컴퓨터(브라우저)에만 저장됩니다.
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>2단계. 중국어 가리기 / 글자 넣기</h2>
-      <div class="row">
-        <button class="toolBtn active" data-tool="select">↖ 선택</button>
-        <button class="toolBtn" data-tool="rect">⬛ 가리개</button>
-        <button class="toolBtn" data-tool="text">가 텍스트</button>
-        <select id="shapeSel" title="가리개 모양">
-          <option value="rect">⬛ 네모</option>
-          <option value="round">▢ 둥근네모</option>
-          <option value="ellipse">⚫ 원형</option>
-          <option value="mosaic">🔲 모자이크</option>
-        </select>
-      </div>
-      <div class="row" id="emojiRow" style="gap:3px"></div>
-      <div class="hint">
-        · <b>가리개</b>: 모양을 고르고 중국어 부분을 드래그하면 가려집니다.<br>
-        &nbsp;&nbsp;<b>모자이크</b>를 고르면 흐림 처리로 자연스럽게 가려집니다.<br>
-        · <b>텍스트</b>: 영상 위 원하는 위치를 클릭하면 글자가 추가됩니다.<br>
-        · <b>이모티콘</b>: 위 그림을 누르면 영상에 추가됩니다. (글자처럼 이동/크기조절)<br>
-        · <b>선택</b>: 클릭해서 옮기고, 오른쪽 아래 모서리를 잡아 크기 조절.
-      </div>
-      <div id="propBox" style="display:none; margin-top:8px"></div>
       <div style="margin-top:8px">
         <div class="row" style="justify-content:space-between">
           <label>추가된 항목</label>
