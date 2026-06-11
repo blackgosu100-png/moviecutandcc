@@ -193,7 +193,18 @@
           <label>글씨체</label><select id="ssFont" style="max-width:170px"></select>
         </div>
         <div class="row">
+          <label>가로 위치</label><input type="range" id="ssX" min="5" max="95" value="50" style="flex:1">
+        </div>
+        <div class="row">
           <label>세로 위치</label><input type="range" id="ssY" min="5" max="98" value="88" style="flex:1">
+        </div>
+        <div class="row">
+          <label>박스 안 정렬</label>
+          <select id="ssAlign">
+            <option value="center">가운데</option>
+            <option value="left">왼쪽</option>
+            <option value="right">오른쪽</option>
+          </select>
         </div>
         <div class="row">
           <label>박스 여백</label>
@@ -201,7 +212,9 @@
           <input type="number" id="ssPadY" value="10" min="0" max="80" style="width:52px">
           <label>(가로/세로)</label>
         </div>
-        <div class="hint">바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다. 글자 내용만 "추가된 항목"에서 항목별로 수정하세요.</div>
+        <div class="hint">바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다.
+        <b>영상에서 자막을 드래그하면 전체 자막 위치가 한꺼번에 이동</b>합니다.
+        글자 내용만 "추가된 항목"에서 항목별로 수정하세요.</div>
       </div>
       <div style="margin-top:8px">
         <div class="row" style="justify-content:space-between">
@@ -636,7 +649,12 @@ cv.addEventListener('pointerdown', e => {
   }
   const hit = hitTest(p);
   select(hit);
-  if (hit) drag = { mode:'move', o: hit, dx: p.x - hit.x, dy: p.y - hit.y };
+  if (hit) {
+    // AI 자막(번역 텍스트가 있는 쌍)을 드래그하면 전체 자막 위치를 한꺼번에 이동
+    const isAiSub = hit.subId != null && objects.some(o => o.subId === hit.subId && o.type === 'text');
+    if (isAiSub) drag = { mode: 'moveSubs', start: p, sx: +$('ssX').value, sy: +$('ssY').value };
+    else drag = { mode: 'move', o: hit, dx: p.x - hit.x, dy: p.y - hit.y };
+  }
 });
 cv.addEventListener('pointermove', e => {
   if (exporting) return;
@@ -648,6 +666,11 @@ cv.addEventListener('pointermove', e => {
   }
   if (!drag) return;
   if (drag.mode === 'move') { drag.o.x = p.x - drag.dx; drag.o.y = p.y - drag.dy; }
+  else if (drag.mode === 'moveSubs') {
+    $('ssX').value = Math.min(95, Math.max(5, drag.sx + (p.x - drag.start.x) / cv.width * 100));
+    $('ssY').value = Math.min(98, Math.max(5, drag.sy + (p.y - drag.start.y) / cv.height * 100));
+    applySubStyle();
+  }
   else if (drag.mode === 'resize') {
     drag.o.w = Math.max(10, p.x - drag.o.x);
     drag.o.h = Math.max(10, p.y - drag.o.y);
@@ -1180,7 +1203,9 @@ function applySubStyle() {
   const alpha = (+$('ssAlpha').value || 100) / 100;
   const size = Math.max(10, +$('ssSize').value || 28);
   const tColor = $('ssTextColor').value, bold = $('ssBold').checked, font = $('ssFont').value;
+  const xCenter = (+$('ssX').value / 100) * cv.width;
   const yCenter = (+$('ssY').value / 100) * cv.height;
+  const align = $('ssAlign').value;
   const padX = +$('ssPadX').value || 0, padY = +$('ssPadY').value || 0;
 
   for (const id in pairs) {
@@ -1198,7 +1223,7 @@ function applySubStyle() {
     lines.forEach(l => tw = Math.max(tw, ctx.measureText(l).width));
     const th = lines.length * size * 1.25;
     let bw = tw + padX * 2, bh = th + padY * 2;
-    let bx = cv.width / 2 - bw / 2, by = yCenter - bh / 2;
+    let bx = xCenter - bw / 2, by = yCenter - bh / 2;
     // 원본 중국어 자막이 박스 밖으로 삐져나오지 않게 필요한 만큼만 확장
     const ov = p.rect.cover;
     if (ov && ov.h < bh * 3 && ov.w < cv.width * 0.95) {
@@ -1207,14 +1232,17 @@ function applySubStyle() {
       bx = left; by = top; bw = right - left; bh = bottom - top;
     }
     Object.assign(p.rect, { shape, color: boxColor, alpha, x: bx, y: by, w: bw, h: bh });
-    t.x = cv.width / 2 - tw / 2;
+    // 박스 안 텍스트 정렬 (가운데/왼쪽/오른쪽)
+    if (align === 'left') t.x = bx + padX;
+    else if (align === 'right') t.x = bx + bw - padX - tw;
+    else t.x = bx + bw / 2 - tw / 2;
     t.y = yCenter - th / 2;
   }
 }
 
 /* 일괄 스타일 컨트롤 연결 */
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
-['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssY', 'ssPadX', 'ssPadY']
+['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssX', 'ssY', 'ssAlign', 'ssPadX', 'ssPadY']
   .forEach(id => $(id).addEventListener('input', applySubStyle));
 
 $('aiBtn').onclick = async () => {
