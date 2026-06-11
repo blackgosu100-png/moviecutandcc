@@ -200,10 +200,15 @@
         </div>
         <div class="row">
           <label>박스 안 정렬</label>
-          <select id="ssAlign">
+          <select id="ssAlign" title="가로 정렬">
             <option value="center">가운데</option>
             <option value="left">왼쪽</option>
             <option value="right">오른쪽</option>
+          </select>
+          <select id="ssAlignV" title="세로 정렬">
+            <option value="middle">중단</option>
+            <option value="top">상단</option>
+            <option value="bottom">하단</option>
           </select>
         </div>
         <div class="row">
@@ -1282,7 +1287,7 @@ function applySubStyle() {
   const tColor = $('ssTextColor').value, bold = $('ssBold').checked, font = $('ssFont').value;
   const xCenter = (+$('ssX').value / 100) * cv.width;
   const yCenter = (+$('ssY').value / 100) * cv.height;
-  const align = $('ssAlign').value;
+  const align = $('ssAlign').value, alignV = $('ssAlignV').value;
   const padX = +$('ssPadX').value || 0, padY = +$('ssPadY').value || 0;
 
   for (const id in pairs) {
@@ -1300,26 +1305,29 @@ function applySubStyle() {
     lines.forEach(l => tw = Math.max(tw, ctx.measureText(l).width));
     const th = lines.length * size * 1.25;
     let bw = tw + padX * 2, bh = th + padY * 2;
-    let bx = xCenter - bw / 2, by = yCenter - bh / 2;
-    // 원본 중국어 자막이 박스 밖으로 삐져나오지 않게 필요한 만큼만 확장
+    // 원본 중국어 자막을 가리는 데 필요한 만큼 확장하되,
+    // 글자 중심 기준 좌우·상하 대칭으로 늘려서 박스가 항상 가운데 오게 한다
     const ov = p.rect.cover;
     if (ov && ov.h < bh * 3 && ov.w < cv.width * 0.95) {
-      const left = Math.min(bx, ov.x), right = Math.max(bx + bw, ov.x + ov.w);
-      const top = Math.min(by, ov.y), bottom = Math.max(by + bh, ov.y + ov.h);
-      bx = left; by = top; bw = right - left; bh = bottom - top;
+      const halfW = Math.max(bw / 2, xCenter - ov.x, (ov.x + ov.w) - xCenter);
+      const halfH = Math.max(bh / 2, yCenter - ov.y, (ov.y + ov.h) - yCenter);
+      bw = halfW * 2; bh = halfH * 2;
     }
+    const bx = xCenter - bw / 2, by = yCenter - bh / 2;
     Object.assign(p.rect, { shape, color: boxColor, alpha, x: bx, y: by, w: bw, h: bh });
-    // 박스 안 텍스트 정렬 (가운데/왼쪽/오른쪽)
+    // 박스 안 텍스트 정렬 (가로: 왼쪽/가운데/오른쪽, 세로: 상단/중단/하단)
     if (align === 'left') t.x = bx + padX;
     else if (align === 'right') t.x = bx + bw - padX - tw;
     else t.x = bx + bw / 2 - tw / 2;
-    t.y = yCenter - th / 2;
+    if (alignV === 'top') t.y = by + padY;
+    else if (alignV === 'bottom') t.y = by + bh - padY - th;
+    else t.y = by + bh / 2 - th / 2;
   }
 }
 
 /* 일괄 스타일 컨트롤 연결 */
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
-['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssX', 'ssY', 'ssAlign', 'ssPadX', 'ssPadY']
+['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssX', 'ssY', 'ssAlign', 'ssAlignV', 'ssPadX', 'ssPadY']
   .forEach(id => $(id).addEventListener('input', applySubStyle));
 
 $('aiBtn').onclick = async () => {
