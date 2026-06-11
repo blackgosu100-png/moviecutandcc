@@ -849,16 +849,21 @@ function analyzeBand(img, w, h) {
   const mask = new Uint8Array(w * h);
   let count = 0;
   const off = 4;
-  const darkAt = (x, y) => {
+  // 절대값(450) 또는 글자보다 충분히 어두우면(차이 160+) 윤곽으로 인정
+  // → 반투명 자막 박스가 밝은 하늘 위에서 연해져도 글자를 놓치지 않는다
+  const darkAt = (x, y, pSum) => {
     const i = (y * w + x) * 4;
-    return d[i] + d[i + 1] + d[i + 2] < 330;
+    const s = d[i] + d[i + 1] + d[i + 2];
+    return s < 450 || s < pSum - 160;
   };
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const p = y * w + x;
       if (!bright[p]) continue;
-      if ((x >= off && darkAt(x - off, y)) || (x + off < w && darkAt(x + off, y)) ||
-          (y >= off && darkAt(x, y - off)) || (y + off < h && darkAt(x, y + off))) {
+      const i = p * 4;
+      const pSum = d[i] + d[i + 1] + d[i + 2];
+      if ((x >= off && darkAt(x - off, y, pSum)) || (x + off < w && darkAt(x + off, y, pSum)) ||
+          (y >= off && darkAt(x, y - off, pSum)) || (y + off < h && darkAt(x, y + off, pSum))) {
         mask[p] = 1; count++;
       }
     }
@@ -885,7 +890,7 @@ function sameSig(a, b) {
   if (!a || !b) return false;
   let inter = 0, uni = 0;
   for (let i = 0; i < a.length; i++) { if (a[i] | b[i]) uni++; if (a[i] & b[i]) inter++; }
-  return uni === 0 ? true : inter / uni > 0.45;
+  return uni === 0 ? true : inter / uni > 0.35;   // 배경 변화로 같은 자막이 쪼개지는 것 완화
 }
 
 /* 마스크에서 자막 영역 찾기
@@ -1154,14 +1159,34 @@ $('aiBtn').onclick = async () => {
     await translateSegs(segs, key);
     if (aiCancel) throw new Error('중단되었습니다.');
 
-    // 같은 자막이 이어지는 구간 합치기 + 번역 안 된 구간 제거
+    // 1) 같은 중국어가 이어지는 구간 합치기
     const merged = [];
     for (const s of segs) {
       const last = merged[merged.length - 1];
       if (last && last.chinese && last.chinese === s.chinese && s.t0 - last.t1 < 0.8) last.t1 = s.t1;
       else merged.push(s);
     }
-    const finals = merged.filter(s => s.bbox.h < cv.height * 0.25);
+    // 2) 번역이 비어 있는 조각을 시간·위치가 겹치는 옆 구간에 흡수
+    //    (같은 자막이 배경 변화로 여러 조각으로 쪼개졌을 때 가리개만 수십 개 생기는 것 방지)
+    const overlapBox = (a, b) => {
+      const ix = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+      const iy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+      return ix > Math.min(a.w, b.w) * 0.5 && iy > Math.min(a.h, b.h) * 0.4;
+    };
+    const absorbed = [];
+    for (const s of merged) {
+      const last = absorbed[absorbed.length - 1];
+      if (last && s.t0 - last.t1 < 0.6 && overlapBox(last.bbox, s.bbox)) {
+        if (!s.chinese) { last.t1 = Math.max(last.t1, s.t1); continue; }       // 뒤 빈 조각 → 앞에 흡수
+        if (!last.chinese) {                                                   // 앞 빈 조각 → 뒤에 흡수
+          s.t0 = Math.min(s.t0, last.t0);
+          absorbed[absorbed.length - 1] = s;
+          continue;
+        }
+      }
+      absorbed.push(s);
+    }
+    const finals = absorbed.filter(s => s.bbox.h < cv.height * 0.25);
     if (!finals.length) {
       alert('자막을 찾았지만 사용할 수 있는 구간이 없었습니다.');
       return;
