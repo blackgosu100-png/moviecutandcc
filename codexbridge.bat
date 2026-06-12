@@ -101,7 +101,13 @@ async function translate(data) {
     }
     if (!text) text = (r.stdout || '').trim();
     if (!text && r.code !== 0) {
-      return { error: (r.stderr || '알 수 없는 오류').slice(0, 2000) };
+      let msg = r.stderr || '알 수 없는 오류';
+      if (/not recognized|찾을 수 없|ENOENT/i.test(msg)) {
+        msg = 'Codex CLI가 설치되어 있지 않습니다.\n'
+            + '명령 프롬프트에서 npm install -g @openai/codex 실행 → codex 명령으로 로그인 →\n'
+            + '이 연결 프로그램을 껐다 다시 켠 뒤 시도해 주세요.';
+      }
+      return { error: msg.slice(0, 2000) };
     }
     return { text };
   } finally {
@@ -179,4 +185,20 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(' "Codex CLI (내 컴퓨터)" 옵션이 나타납니다.');
   console.log(' 이 창을 닫으면 Codex 옵션도 함께 사라집니다.');
   console.log('======================================================');
+  // 시작하면서 Codex CLI 설치 여부를 미리 확인해 준다
+  const probe = spawn('codex', ['--version'], { shell: process.platform === 'win32' });
+  let probeOut = '';
+  probe.stdout.on('data', (d) => probeOut += d);
+  probe.on('error', () => {});
+  probe.on('close', (code) => {
+    if (code === 0) {
+      console.log(' Codex CLI 확인됨: ' + probeOut.trim());
+    } else {
+      console.log('');
+      console.log(' [주의] Codex CLI를 찾을 수 없습니다 — 이대로는 번역이 실패합니다.');
+      console.log(' 명령 프롬프트에서 아래를 실행한 뒤, 이 창을 껐다 다시 켜세요:');
+      console.log('   npm install -g @openai/codex');
+      console.log('   codex          (ChatGPT 계정으로 로그인)');
+    }
+  });
 });
