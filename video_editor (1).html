@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v17</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v18</b></span>
 </header>
 
 <main>
@@ -274,11 +274,6 @@
             <option value="uniform">모두 동일하게 (통일)</option>
             <option value="fit">글자 길이에 맞춤</option>
           </select>
-        </div>
-        <div class="row">
-          <label title="원본 중국어 자막이 박스보다 넓으면 그 부분만 박스를 늘려서 가립니다. 끄면 박스가 전부 같은 크기가 되지만 중국어가 살짝 보일 수 있습니다.">
-            <input type="checkbox" id="ssCoverGuard" checked> 원본 중국어 자동 가림
-          </label>
         </div>
         <div class="row">
           <label>박스 불투명도</label>
@@ -514,7 +509,7 @@ function projectTx(mode, fn) {
 function controlState() {
   const ids = ['ssShape','ssBoxColor','ssAlpha','ssSize','ssTextColor','ssBold','ssFont','ssX','ssY',
                'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW',
-               'ssSizeMode','ssCoverGuard'];
+               'ssSizeMode'];
   const out = {};
   ids.forEach(id => {
     const el = $(id);
@@ -844,11 +839,6 @@ function drawMosaic(o) {
   ctx.drawImage(mcv, 0, 0, sw, sh, o.x, o.y, o.w, o.h);
   ctx.imageSmoothingEnabled = true;
 }
-function boxContainsBox(outer, inner) {
-  return outer.x <= inner.x + 0.5 && outer.y <= inner.y + 0.5 &&
-         outer.x + outer.w >= inner.x + inner.w - 0.5 &&
-         outer.y + outer.h >= inner.y + inner.h - 0.5;
-}
 function shapePath(o, box) {
   ctx.beginPath();
   if (o.shape === 'ellipse') {
@@ -860,38 +850,17 @@ function shapePath(o, box) {
   }
 }
 function fillShapeBox(o, box) { shapePath(o, box); ctx.fill(); }
-function coverGuardOn() {
-  const el = $('ssCoverGuard');
-  return el ? el.checked : true;
-}
 function drawShape(o) {
   if (o.shape === 'mosaic') { drawMosaic(o); return; }
   const prevA = ctx.globalAlpha;
   if (o.alpha != null) ctx.globalAlpha = prevA * o.alpha;
   ctx.fillStyle = o.color;
-  // 원본 중국어 자동 가림:
-  // - 박스가 원래 자리와 겹쳐 있으면 → 한 덩어리로 자연스럽게 확장
-  // - 박스를 멀리 옮겼으면 → 박스는 제자리에 그대로, 원래 자리만 별도 패치로 가림
-  //   (예전처럼 박스가 원래 자리까지 쭉 늘어나 거대해지는 것 방지)
-  let box = o;
-  if (coverGuardOn() && o.cover && o.subId != null && !boxContainsBox(o, o.cover)) {
-    const ov = o.cover;
-    const intersects = o.x < ov.x + ov.w && o.x + o.w > ov.x &&
-                       o.y < ov.y + ov.h && o.y + o.h > ov.y;
-    if (intersects) {
-      const x1 = Math.min(o.x, ov.x), y1 = Math.min(o.y, ov.y);
-      const x2 = Math.max(o.x + o.w, ov.x + ov.w);
-      const y2 = Math.max(o.y + o.h, ov.y + ov.h);
-      box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-    } else {
-      fillShapeBox(o, ov);
-    }
-  }
-  fillShapeBox(o, box);
+  // 보이는 박스가 전부 — 자동 가림 같은 숨은 그림 없음
+  fillShapeBox(o, o);
   if (o.strokeW > 0) {
     ctx.strokeStyle = o.strokeColor || '#000000';
     ctx.lineWidth = o.strokeW;
-    shapePath(o, box);
+    shapePath(o, o);
     ctx.stroke();
   }
   ctx.globalAlpha = prevA;
@@ -2608,13 +2577,6 @@ function applySubStyle() {
       bw = uniHalfW * 2; bh = uniHalfH * 2;
     } else {
       bw = tw + padX * 2; bh = th + padY * 2;
-      // 원본 중국어 자막을 가리는 데 필요한 만큼 글자 중심 기준 대칭 확장
-      const ov = p.rect.cover;
-      if (ov && ov.h < bh * 3 && ov.w < cv.width * 0.95) {
-        const halfW = Math.max(bw / 2, xCenter - ov.x, (ov.x + ov.w) - xCenter);
-        const halfH = Math.max(bh / 2, yCenter - ov.y, (ov.y + ov.h) - yCenter);
-        bw = halfW * 2; bh = halfH * 2;
-      }
     }
     // 개별 드래그로 옮긴 위치 보정값 반영
     const bx = xCenter - bw / 2 + (p.rect.offX || 0);
@@ -2682,7 +2644,7 @@ function updateSubStyleVisibility() {
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
 ['ssShape', 'ssBoxColor', 'ssAlpha', 'ssAlphaN', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont',
  'ssX', 'ssXN', 'ssY', 'ssYN', 'ssAlign', 'ssAlignV',
- 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW', 'ssStrokeWN', 'ssSizeMode', 'ssCoverGuard']
+ 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW', 'ssStrokeWN', 'ssSizeMode']
   .forEach(id => $(id).addEventListener('input', () => {
     syncPadInputs(id);
     applySubStyle();
