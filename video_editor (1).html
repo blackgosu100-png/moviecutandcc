@@ -855,7 +855,8 @@ function render() {
   for (const o of objects) {
     const isSel = !exporting && isObjectSelected(o);
     const canResize = isSel && !selectedSet.size && o === selected;
-    if (!visibleNow(o)) {
+    const ghost = !visibleNow(o);   // 표시 구간 밖
+    if (ghost) {
       if (exporting || !isSel) continue;
       ctx.globalAlpha = .3;   // 표시 구간 밖이어도 선택 중이면 흐리게 보여줌
     }
@@ -871,6 +872,21 @@ function render() {
       }
     } else {
       drawTextObj(o, isSel);
+    }
+    if (ghost && isSel) {
+      // 헷갈리지 않게 안내 라벨 표시 (저장 영상에는 들어가지 않음)
+      ctx.globalAlpha = .95;
+      const fs = Math.max(13, Math.round(cv.width / 50));
+      ctx.font = fs + 'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+      ctx.textBaseline = 'top';
+      const label = '⏱ 표시 구간 밖 — 선택 중이라 흐리게 보임 (빈 곳 클릭하면 사라짐)';
+      const tw = ctx.measureText(label).width;
+      const lx = Math.max(4, Math.min(cv.width - tw - 16, o.x));
+      const ly = Math.max(4, o.y - fs - 12);
+      ctx.fillStyle = 'rgba(15,20,32,.85)';
+      ctx.fillRect(lx, ly, tw + 12, fs + 10);
+      ctx.fillStyle = '#ffb648';
+      ctx.fillText(label, lx + 6, ly + 5);
     }
     ctx.globalAlpha = 1;
   }
