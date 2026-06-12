@@ -2376,18 +2376,14 @@ function applySubStyle() {
     list.push({ p, t, tw, th });
   }
 
-  // "모두 동일" 모드: 가장 긴 글자 + 원본 중국어 가림 범위를 모두 만족하는 공통 박스 크기
+  // "모두 동일" 모드: 가장 긴 글자 + 여백 기준의 공통 박스 크기
+  // (박스 밖으로 삐져나오는 원본 중국어는 drawShape의 보조 가림이 자동으로 덧칠해 준다
+  //  → 여백을 줄이면 박스도 그대로 작아진다)
   let uniHalfW = 0, uniHalfH = 0;
   if (uniform) {
     for (const it of list) {
-      let hw = it.tw / 2 + padX, hh = it.th / 2 + padY;
-      const ov = it.p.rect.cover;
-      if (ov && ov.h < (it.th + padY * 2) * 3 && ov.w < cv.width * 0.95) {
-        hw = Math.max(hw, xCenter - ov.x, (ov.x + ov.w) - xCenter);
-        hh = Math.max(hh, yCenter - ov.y, (ov.y + ov.h) - yCenter);
-      }
-      uniHalfW = Math.max(uniHalfW, hw);
-      uniHalfH = Math.max(uniHalfH, hh);
+      uniHalfW = Math.max(uniHalfW, it.tw / 2 + padX);
+      uniHalfH = Math.max(uniHalfH, it.th / 2 + padY);
     }
     uniHalfW = Math.min(uniHalfW, cv.width * 0.48);
     uniHalfH = Math.min(uniHalfH, cv.height * 0.2);
