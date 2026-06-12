@@ -267,6 +267,13 @@
           <label>박스색</label><input type="color" id="ssBoxColor" value="#3f5159">
         </div>
         <div class="row">
+          <label>박스 크기</label>
+          <select id="ssSizeMode" style="flex:1">
+            <option value="uniform">모두 동일하게 (통일)</option>
+            <option value="fit">글자 길이에 맞춤</option>
+          </select>
+        </div>
+        <div class="row">
           <label>박스 불투명도</label>
           <input type="range" id="ssAlpha" min="10" max="100" value="100" style="flex:1">
         </div>
@@ -374,7 +381,7 @@
 <div id="timeline">
   <div id="tlHeader">
     <button id="splitBtn">✂ 현재 위치에서 자르기</button>
-    <span class="hint">조각 클릭 = 삭제/복원 · 막대 드래그 = 이동 · 양끝 = 길이 · 더블클릭 = 글자 수정 · 스페이스바 = 재생/멈춤</span>
+    <span class="hint">조각 클릭 = 삭제/복원 · 막대 드래그 = 이동 · 양끝 = 길이 · 빈 곳 드래그 = 여러 개 선택 · 더블클릭 = 글자 수정 · 스페이스바 = 재생/멈춤</span>
   </div>
   <div id="tlBody">
     <div class="tlLabels">
@@ -474,7 +481,7 @@ function projectTx(mode, fn) {
 }
 function controlState() {
   const ids = ['ssShape','ssBoxColor','ssAlpha','ssSize','ssTextColor','ssBold','ssFont','ssX','ssY',
-               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW'];
+               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW','ssSizeMode'];
   const out = {};
   ids.forEach(id => {
     const el = $(id);
@@ -858,8 +865,8 @@ function render() {
     } else {
       drawTextObj(o, isSel);
     }
-    if (ghost && isSel) {
-      // 헷갈리지 않게 안내 라벨 표시 (저장 영상에는 들어가지 않음)
+    if (ghost && isSel && !selectedSet.size) {
+      // 헷갈리지 않게 안내 라벨 표시 — 단일 선택일 때만 (다중 선택 시 라벨 도배 방지)
       ctx.globalAlpha = .95;
       const fs = Math.max(13, Math.round(cv.width / 50));
       ctx.font = fs + 'px "Malgun Gothic","Apple SD Gothic Neo",sans-serif';
@@ -1710,6 +1717,47 @@ function rebuildTimeline() {
   layoutClips(tsh, shapeDefs, $('lblShape'));
 }
 
+/* 타임라인 빈 곳 드래그 = 자막/도형 막대 다중 선택 (파란 선택 상자) */
+$('tlTracks').addEventListener('pointerdown', e => {
+  if (!vid.duration || exporting) return;
+  if (e.target.closest('.clip') || e.target.closest('#tlRuler')) return;
+  const host = $('tlTracks');
+  const r = host.getBoundingClientRect();
+  const startX = e.clientX, startY = e.clientY;
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute; background:rgba(61,169,255,.18); border:1px solid #3da9ff; z-index:6; pointer-events:none;';
+  host.appendChild(box);
+  const move = ev => {
+    const x1 = Math.min(startX, ev.clientX), x2 = Math.max(startX, ev.clientX);
+    const y1 = Math.min(startY, ev.clientY), y2 = Math.max(startY, ev.clientY);
+    box.style.left = (x1 - r.left) + 'px';
+    box.style.top = (y1 - r.top) + 'px';
+    box.style.width = (x2 - x1) + 'px';
+    box.style.height = (y2 - y1) + 'px';
+  };
+  const up = ev => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    box.remove();
+    const x1 = Math.min(startX, ev.clientX), x2 = Math.max(startX, ev.clientX);
+    if (x2 - x1 < 6) { select(null); return; }   // 살짝 클릭 = 선택 해제
+    const dur = tlDur();
+    const tA = Math.max(0, (x1 - r.left) / r.width * dur);
+    const tB = Math.min(dur, (x2 - r.left) / r.width * dur);
+    const picked = objects.filter(o => {
+      const t0 = o.t0 ?? 0, t1 = o.t1 ?? dur;
+      return t1 > tA && t0 < tB;
+    });
+    if (!picked.length) { select(null); return; }
+    selected = null;
+    selectedSet = new Set(picked);
+    refreshProps(); refreshList(); updateSubStyleVisibility();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  e.preventDefault();
+});
+
 /* 눈금자 드래그 = 위치 이동 */
 $('tlRuler').addEventListener('pointerdown', e => {
   if (!vid.duration || exporting) return;
@@ -2305,12 +2353,15 @@ function applySubStyle() {
   const yCenter = (+$('ssY').value / 100) * cv.height;
   const align = $('ssAlign').value, alignV = $('ssAlignV').value;
   const padX = +$('ssPadX').value || 0, padY = +$('ssPadY').value || 0;
+  const uniform = $('ssSizeMode').value !== 'fit';
 
+  // 1차: 대상 자막들의 글자 크기를 측정한다
+  const list = [];
   for (const id in pairs) {
     if (targetIds && !targetIds.has(+id)) continue;
     const p = pairs[id];
     if (!p.rect) continue;
-    if (!p.text) {   // 번역 없이 가리개만 있는 자막: 위치는 그대로 두고 스타일만 통일
+    if (!p.text) {   // 번역 없이 도형만 있는 자막: 위치는 그대로 두고 스타일만 통일
       Object.assign(p.rect, { shape, color: boxColor, alpha });
       continue;
     }
@@ -2322,7 +2373,41 @@ function applySubStyle() {
     let tw = 0;
     lines.forEach(l => tw = Math.max(tw, ctx.measureText(l).width));
     const th = lines.length * size * 1.25;
-    const bw = tw + padX * 2, bh = th + padY * 2;
+    list.push({ p, t, tw, th });
+  }
+
+  // "모두 동일" 모드: 가장 긴 글자 + 원본 중국어 가림 범위를 모두 만족하는 공통 박스 크기
+  let uniHalfW = 0, uniHalfH = 0;
+  if (uniform) {
+    for (const it of list) {
+      let hw = it.tw / 2 + padX, hh = it.th / 2 + padY;
+      const ov = it.p.rect.cover;
+      if (ov && ov.h < (it.th + padY * 2) * 3 && ov.w < cv.width * 0.95) {
+        hw = Math.max(hw, xCenter - ov.x, (ov.x + ov.w) - xCenter);
+        hh = Math.max(hh, yCenter - ov.y, (ov.y + ov.h) - yCenter);
+      }
+      uniHalfW = Math.max(uniHalfW, hw);
+      uniHalfH = Math.max(uniHalfH, hh);
+    }
+    uniHalfW = Math.min(uniHalfW, cv.width * 0.48);
+    uniHalfH = Math.min(uniHalfH, cv.height * 0.2);
+  }
+
+  for (const it of list) {
+    const { p, t, tw, th } = it;
+    let bw, bh;
+    if (uniform) {
+      bw = uniHalfW * 2; bh = uniHalfH * 2;
+    } else {
+      bw = tw + padX * 2; bh = th + padY * 2;
+      // 원본 중국어 자막을 가리는 데 필요한 만큼 글자 중심 기준 대칭 확장
+      const ov = p.rect.cover;
+      if (ov && ov.h < bh * 3 && ov.w < cv.width * 0.95) {
+        const halfW = Math.max(bw / 2, xCenter - ov.x, (ov.x + ov.w) - xCenter);
+        const halfH = Math.max(bh / 2, yCenter - ov.y, (ov.y + ov.h) - yCenter);
+        bw = halfW * 2; bh = halfH * 2;
+      }
+    }
     const bx = xCenter - bw / 2, by = yCenter - bh / 2;
     Object.assign(p.rect, { shape, color: boxColor, alpha, x: bx, y: by, w: bw, h: bh });
     // 박스 안 텍스트 정렬 (가로: 왼쪽/가운데/오른쪽, 세로: 상단/중단/하단)
@@ -2373,7 +2458,7 @@ function updateSubStyleVisibility() {
 /* 일괄 스타일 컨트롤 연결 */
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
 ['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssX', 'ssY', 'ssAlign', 'ssAlignV',
- 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW']
+ 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW', 'ssSizeMode']
   .forEach(id => $(id).addEventListener('input', () => {
     syncPadInputs(id);
     applySubStyle();
