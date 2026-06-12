@@ -35,7 +35,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const PORT = 8787;
+const PORT = 8788;   // 8787은 카페아사다 로컬 서버가 사용 중이라 충돌 방지
 const CODEX_TIMEOUT_MS = 5 * 60 * 1000;
 
 function cors(res) {
