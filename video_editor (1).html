@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v15</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v16</b></span>
 </header>
 
 <main>
@@ -999,6 +999,9 @@ function canvasPos(e) {
 function hitTest(p) {
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
+    // 지금 화면에 보이는 것(또는 선택 중인 것)만 클릭됨
+    // — 같은 자리에 겹쳐 있는 다른 시간대 자막이 대신 잡히는 것 방지
+    if (!visibleNow(o) && !isObjectSelected(o)) continue;
     if (o.type === 'rect') {
       if (p.x >= o.x && p.x <= o.x + o.w && p.y >= o.y && p.y <= o.y + o.h) return o;
     } else {
