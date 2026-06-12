@@ -240,9 +240,9 @@
       <h2>2단계. 중국어 가리기 / 글자 넣기</h2>
       <div class="row">
         <button class="toolBtn active" data-tool="select">↖ 선택</button>
-        <button class="toolBtn" data-tool="rect">⬛ 가리개</button>
+        <button class="toolBtn" data-tool="rect">⬛ 도형</button>
         <button class="toolBtn" data-tool="text">가 텍스트</button>
-        <select id="shapeSel" title="가리개 모양">
+        <select id="shapeSel" title="도형 모양">
           <option value="rect">⬛ 네모</option>
           <option value="round">▢ 둥근네모</option>
           <option value="ellipse">⚫ 원형</option>
@@ -275,6 +275,11 @@
           <input type="number" id="ssSize" value="28" min="12" max="200" style="width:56px">
           <input type="color" id="ssTextColor" value="#ffffff">
           <label><input type="checkbox" id="ssBold" checked> 굵게</label>
+        </div>
+        <div class="row">
+          <label>글자 테두리</label>
+          <input type="color" id="ssStroke" value="#000000">
+          <input type="range" id="ssStrokeW" min="0" max="20" value="0" style="flex:1">
         </div>
         <div class="row">
           <label>글씨체</label><select id="ssFont" style="max-width:170px"></select>
@@ -469,7 +474,7 @@ function projectTx(mode, fn) {
 }
 function controlState() {
   const ids = ['ssShape','ssBoxColor','ssAlpha','ssSize','ssTextColor','ssBold','ssFont','ssX','ssY',
-               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange'];
+               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW'];
   const out = {};
   ids.forEach(id => {
     const el = $(id);
@@ -768,6 +773,12 @@ function drawTextObj(o, withSel) {
     ctx.fillStyle = o.bgColor;
     ctx.fillRect(o.x - 8, o.y - 6, maxW + 16, lines.length * lh + 10);
   }
+  if (o.strokeW > 0) {   // 글자 테두리 (외곽선)
+    ctx.strokeStyle = o.strokeColor || '#000000';
+    ctx.lineWidth = o.strokeW;
+    ctx.lineJoin = 'round';
+    lines.forEach((l, i) => ctx.strokeText(l, o.x, o.y + i * lh));
+  }
   ctx.fillStyle = o.color;
   lines.forEach((l, i) => ctx.fillText(l, o.x, o.y + i * lh));
   o._w = maxW; o._h = lines.length * lh;
@@ -795,20 +806,17 @@ function boxContainsBox(outer, inner) {
          outer.x + outer.w >= inner.x + inner.w - 0.5 &&
          outer.y + outer.h >= inner.y + inner.h - 0.5;
 }
-function fillShapeBox(o, box) {
+function shapePath(o, box) {
+  ctx.beginPath();
   if (o.shape === 'ellipse') {
-    ctx.beginPath();
     ctx.ellipse(box.x + box.w/2, box.y + box.h/2, box.w/2, box.h/2, 0, 0, Math.PI*2);
-    ctx.fill();
-  } else if (o.shape === 'round') {
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(box.x, box.y, box.w, box.h, Math.min(box.w, box.h) * .2);
-    else ctx.rect(box.x, box.y, box.w, box.h);
-    ctx.fill();
+  } else if (o.shape === 'round' && ctx.roundRect) {
+    ctx.roundRect(box.x, box.y, box.w, box.h, Math.min(box.w, box.h) * .2);
   } else {
-    ctx.fillRect(box.x, box.y, box.w, box.h);
+    ctx.rect(box.x, box.y, box.w, box.h);
   }
 }
+function fillShapeBox(o, box) { shapePath(o, box); ctx.fill(); }
 function drawShape(o) {
   if (o.shape === 'mosaic') { drawMosaic(o); return; }
   const prevA = ctx.globalAlpha;
@@ -816,6 +824,12 @@ function drawShape(o) {
   ctx.fillStyle = o.color;
   if (o.cover && o.subId != null && !boxContainsBox(o, o.cover)) fillShapeBox(o, o.cover);
   fillShapeBox(o, o);
+  if (o.strokeW > 0) {
+    ctx.strokeStyle = o.strokeColor || '#000000';
+    ctx.lineWidth = o.strokeW;
+    shapePath(o, o);
+    ctx.stroke();
+  }
   ctx.globalAlpha = prevA;
 }
 function visibleNow(o) {
@@ -1097,7 +1111,7 @@ function refreshList() {
   objects.forEach((o, i) => {
     const d = document.createElement('div');
     d.className = 'objItem' + (isObjectSelected(o) ? ' sel' : '');
-    d.innerHTML = (o.type === 'rect' ? SHAPE_NAMES[o.shape || 'rect'] + ' 가리개 ' + (i+1)
+    d.innerHTML = (o.type === 'rect' ? SHAPE_NAMES[o.shape || 'rect'] + ' 도형 ' + (i+1)
                   : '가 ' + (o.text.length > 10 ? o.text.slice(0,10) + '…' : o.text))
                   + '<span class="del" title="삭제">✕</span>';
     d.onclick = ev => {
@@ -1119,7 +1133,7 @@ $('selectAllObjs').onclick = () => {
   selectAllObjects();
 };
 $('clearObjs').onclick = () => {
-  if (objects.length && confirm('네모와 텍스트를 모두 삭제할까요?')) { objects = []; select(null); }
+  if (objects.length && confirm('도형과 텍스트를 모두 삭제할까요?')) { objects = []; select(null); }
 };
 function timeDuration() {
   return Math.max(0.1, vid.duration || parseFloat($('trimEnd').value) || 1);
@@ -1262,7 +1276,7 @@ function refreshProps() {
     box.innerHTML = `
       <div class="row" style="justify-content:space-between">
         <label style="color:#ffb648; font-weight:bold">선택 ${bulk.length}개</label>
-        <span style="font-size:11px; color:#aab3c8">가리개 ${rects} · 텍스트 ${texts}</span>
+        <span style="font-size:11px; color:#aab3c8">도형 ${rects} · 텍스트 ${texts}</span>
       </div>
       <div class="row">
         <button id="bulkClearSel" style="font-size:11px;padding:4px 8px">선택 해제</button>
@@ -1295,6 +1309,11 @@ function refreshProps() {
         <input type="range" id="pAlpha" min="10" max="100" value="${Math.round((selected.alpha ?? 1) * 100)}" style="flex:1">
         <span style="font-size:11px; color:#aab3c8" id="pAlphaV">${Math.round((selected.alpha ?? 1) * 100)}%</span>
       </div>
+      <div class="row" style="display:${isMosaic?'none':'flex'}"><label>테두리</label>
+        <input type="color" id="pStroke" value="${selected.strokeColor || '#000000'}">
+        <input type="range" id="pStrokeW" min="0" max="20" value="${selected.strokeW || 0}" style="flex:1">
+        <span style="font-size:11px; color:#aab3c8" id="pStrokeWV">${selected.strokeW || 0}</span>
+      </div>
       ${timeRangeHTML(selected)}`;
     $('pShape').onchange = e => { selected.shape = e.target.value; refreshProps(); refreshList(); };
     $('pColor').oninput = e => selected.color = e.target.value;
@@ -1302,6 +1321,8 @@ function refreshProps() {
       selected.alpha = e.target.value / 100;
       $('pAlphaV').textContent = e.target.value + '%';
     };
+    $('pStroke').oninput = e => { selected.strokeColor = e.target.value; if (!selected.strokeW) { selected.strokeW = 4; $('pStrokeW').value = 4; $('pStrokeWV').textContent = '4'; } };
+    $('pStrokeW').oninput = e => { selected.strokeW = +e.target.value; $('pStrokeWV').textContent = e.target.value; };
     $('pickBtn').onclick = () => { pickingColor = true; cv.style.cursor = 'copy'; };
   } else {
     box.innerHTML = `
@@ -1319,6 +1340,11 @@ function refreshProps() {
         <label><input type="checkbox" id="pBg" ${selected.bg?'checked':''}> 배경상자</label>
         <input type="color" id="pBgColor" value="${selected.bgColor}">
       </div>
+      <div class="row"><label>테두리</label>
+        <input type="color" id="pStroke" value="${selected.strokeColor || '#000000'}">
+        <input type="range" id="pStrokeW" min="0" max="20" value="${selected.strokeW || 0}" style="flex:1">
+        <span style="font-size:11px; color:#aab3c8" id="pStrokeWV">${selected.strokeW || 0}</span>
+      </div>
       ${timeRangeHTML(selected)}`;
     $('pText').oninput = e => {
       selected.text = e.target.value;
@@ -1331,6 +1357,8 @@ function refreshProps() {
     $('pBold').onchange = e => selected.bold = e.target.checked;
     $('pBg').onchange = e => selected.bg = e.target.checked;
     $('pBgColor').oninput = e => selected.bgColor = e.target.value;
+    $('pStroke').oninput = e => { selected.strokeColor = e.target.value; if (!selected.strokeW) { selected.strokeW = 4; $('pStrokeW').value = 4; $('pStrokeWV').textContent = '4'; } };
+    $('pStrokeW').oninput = e => { selected.strokeW = +e.target.value; $('pStrokeWV').textContent = e.target.value; };
   }
   wireTimeRange(selected);
 }
@@ -1676,7 +1704,7 @@ function rebuildTimeline() {
   for (const id of Object.keys(groups)) {
     const items = groups[id];
     const t = items.find(o => o.type === 'text');
-    subDefs.push({ items, label: t ? short(t.text) : '가리개만', cls: 'sub' });
+    subDefs.push({ items, label: t ? short(t.text) : '도형만', cls: 'sub' });
   }
   layoutClips(ts, subDefs, $('lblSub'));
   layoutClips(tsh, shapeDefs, $('lblShape'));
@@ -2288,6 +2316,7 @@ function applySubStyle() {
     }
     const t = p.text;
     t.size = size; t.color = tColor; t.bold = bold; t.font = font; t.bg = false;
+    t.strokeColor = $('ssStroke').value; t.strokeW = +$('ssStrokeW').value || 0;
     ctx.font = (bold ? 'bold ' : '') + size + 'px ' + font;
     const lines = t.text.split('\n');
     let tw = 0;
@@ -2310,7 +2339,8 @@ function applySubStyle() {
       if (o.type === 'rect') {
         if (o.shape !== 'mosaic') Object.assign(o, { shape, color: boxColor, alpha });
       } else {
-        Object.assign(o, { size, color: tColor, bold, font });
+        Object.assign(o, { size, color: tColor, bold, font,
+                           strokeColor: $('ssStroke').value, strokeW: +$('ssStrokeW').value || 0 });
         if (o.bg) o.bgColor = boxColor;
       }
     }
@@ -2343,7 +2373,7 @@ function updateSubStyleVisibility() {
 /* 일괄 스타일 컨트롤 연결 */
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
 ['ssShape', 'ssBoxColor', 'ssAlpha', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont', 'ssX', 'ssY', 'ssAlign', 'ssAlignV',
- 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange']
+ 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW']
   .forEach(id => $(id).addEventListener('input', () => {
     syncPadInputs(id);
     applySubStyle();
@@ -2431,9 +2461,9 @@ $('aiBtn').onclick = async () => {
     updateSubStyleVisibility();
     refreshList();
     const skipped = finals.length - translated.length;
-    aiStatus(`완료! 자막 ${translated.length}개 번역 적용` + (skipped ? ` (${skipped}개는 가리개만)` : ''));
-    alert(`자동 번역 완료!\n\n자막 ${translated.length}개 구간에 가리개+한글 텍스트를 추가했습니다.`
-      + (skipped ? `\n읽지 못한 ${skipped}개 구간은 가리개만 넣었습니다. (필요하면 텍스트 도구로 글자 추가)` : '')
+    aiStatus(`완료! 자막 ${translated.length}개 번역 적용` + (skipped ? ` (${skipped}개는 도형만)` : ''));
+    alert(`자동 번역 완료!\n\n자막 ${translated.length}개 구간에 도형+한글 텍스트를 추가했습니다.`
+      + (skipped ? `\n읽지 못한 ${skipped}개 구간은 도형만 넣었습니다. (필요하면 텍스트 도구로 글자 추가)` : '')
       + `\n\n· 크기·색·위치·불투명도는 "🎨 자막 일괄 스타일"에서 한 번에 바꿀 수 있습니다.\n· 글자 내용은 "추가된 항목"에서 항목별로 수정하세요.`);
   } catch (err) {
     aiStatus('');
