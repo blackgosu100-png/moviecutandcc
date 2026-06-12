@@ -1278,10 +1278,21 @@ function refreshProps() {
         <input type="color" id="pBgColor" value="${selected.bgColor}">
       </div>
       ${timeRangeHTML(selected)}`;
-    $('pText').oninput = e => {
-      selected.text = e.target.value;
+    const txt = $('pText');
+    let composing = false;   // 한글 IME 조합 중 여부
+    const applyText = () => {
+      selected.text = txt.value;
       refreshList();
       if (selected.subId != null) applySubStyle();   // AI 자막은 내용이 바뀌면 자동 재정렬
+    };
+    // 한글은 조합 중에도 input이 계속 발생한다. 조합 중에는 캔버스 미리보기만 갱신하고
+    // 무거운 목록/타임라인 재생성은 조합이 끝난 뒤로 미뤄야 IME가 끊기지 않는다.
+    txt.addEventListener('compositionstart', () => { composing = true; });
+    txt.addEventListener('compositionend', () => { composing = false; applyText(); });
+    txt.oninput = () => {
+      selected.text = txt.value;   // 캔버스는 매 프레임 자동으로 다시 그려져 즉시 반영됨
+      if (composing) return;
+      applyText();
     };
     $('pFont').onchange = e => selected.font = e.target.value;
     $('pSize').oninput = e => selected.size = +e.target.value || 20;
@@ -1569,12 +1580,14 @@ function rebuildTimeline() {
   });
 
   // 음성 트랙: 원본 소리 + 배경음악
+  // 둘 다 영상 전체 길이에 깔리므로(배경음악은 자동 반복) 모두 '전체 폭'으로 표시한다.
+  // 배경음악이 있으면 한 줄을 위/아래로 나눠 두 소리를 겹치지 않게 보여 준다.
   const ta = $('trackAudio'); ta.innerHTML = '';
-  const oa = document.createElement('div');
   const muted = $('muteChk').checked;
+  const oa = document.createElement('div');
   oa.className = 'clip audio' + (muted ? ' off' : '');
-  oa.style.left = '0'; oa.style.width = bgmLoaded ? '49%' : '100%';
-  oa.textContent = muted ? '🔇 원본 소리 (제거됨)' : '🔊 원본 소리';
+  oa.style.left = '0'; oa.style.width = '100%';
+  oa.textContent = muted ? '🔇 원본 소리 (제거됨)' : '🔊 원본 소리 (영상 전체)';
   oa.title = '클릭하면 원본(중국어) 소리를 켜고 끕니다';
   oa.onclick = () => {
     if (exporting) return;
@@ -1582,13 +1595,18 @@ function rebuildTimeline() {
     vid.muted = $('muteChk').checked;
     rebuildTimeline();
   };
+  if (bgmLoaded) {   // 위쪽 절반에 배치
+    oa.style.top = '2px'; oa.style.bottom = 'auto'; oa.style.height = '10px'; oa.style.lineHeight = '10px';
+  }
   ta.appendChild(oa);
   if (bgmLoaded) {
     const ba = document.createElement('div');
     ba.className = 'clip audio';
-    ba.style.left = '50%'; ba.style.width = '50%';
-    ba.textContent = '🎵 ' + ($('bgmName').textContent.replace(/^🎵\s*/, '') || '배경음악');
-    ba.title = '배경음악은 완성 영상 전체에 깔립니다. 음량은 오른쪽 3단계에서 조절하세요.';
+    ba.style.left = '0'; ba.style.width = '100%';
+    ba.style.top = '14px'; ba.style.bottom = 'auto'; ba.style.height = '10px'; ba.style.lineHeight = '10px';
+    ba.style.background = '#8a6bd0';
+    ba.textContent = '🎵 ' + ($('bgmName').textContent.replace(/^🎵\s*/, '') || '배경음악') + ' (전체 반복)';
+    ba.title = '배경음악은 완성 영상 전체에 자동 반복으로 깔립니다. 음량은 오른쪽 3단계에서 조절하세요.';
     ta.appendChild(ba);
   }
 
