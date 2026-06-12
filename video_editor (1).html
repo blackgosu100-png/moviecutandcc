@@ -2660,8 +2660,22 @@ $('aiBtn').onclick = async () => {
     $('ssSize').value = Math.max(14, Math.round(medH * 0.5));
     $('ssY').value = Math.min(98, Math.max(5, Math.round(medCY / cv.height * 100)));
     $('ssBoxColor').value = base[Math.floor(base.length / 2)].bg;
-    $('ssPadX').value = Math.max(10, Math.round(cv.width * 0.018));
-    $('ssPadY').value = Math.max(6, Math.round(medH * 0.18));
+
+    // 초기 여백: 가장 넓은 원본 자막까지 덮도록 계산 → 모든 박스가 처음부터 같은 크기
+    // (나중에 여백/글자 크기를 줄이면 전체가 똑같이 줄어든다)
+    const xC = (+$('ssX').value / 100) * cv.width;
+    const yC = (+$('ssY').value / 100) * cv.height;
+    const initSize = +$('ssSize').value;
+    ctx.font = 'bold ' + initSize + 'px ' + $('ssFont').value;
+    let maxTextHalfW = 0, needHalfW = 0, needHalfH = 0;
+    for (const s of finals) {
+      if (s.korean) maxTextHalfW = Math.max(maxTextHalfW, ctx.measureText(s.korean).width / 2);
+      needHalfW = Math.max(needHalfW, xC - s.bbox.x, s.bbox.x + s.bbox.w - xC);
+      needHalfH = Math.max(needHalfH, yC - s.bbox.y, s.bbox.y + s.bbox.h - yC);
+    }
+    const maxTextHalfH = initSize * 1.25 / 2;
+    $('ssPadX').value = Math.min(120, Math.max(10, Math.ceil(needHalfW - maxTextHalfW) + 4));
+    $('ssPadY').value = Math.min(80, Math.max(6, Math.ceil(needHalfH - maxTextHalfH) + 2));
     syncPadInputs('ssPadX');
     syncPadInputs('ssPadY');
 
