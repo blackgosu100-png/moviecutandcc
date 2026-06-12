@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기</span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v13</b></span>
 </header>
 
 <main>
@@ -427,6 +427,35 @@ let exporting = false;
 let pickingColor = false;
 let currentVideoFile = null;
 let currentVideoUrl = '';
+
+/* ---------- 실행 취소 / 다시 실행 (Ctrl+Z / Ctrl+Y) ---------- */
+let undoStack = [], redoStack = [];
+const snapObjects = () => JSON.stringify(objects);
+function pushHistory() {
+  undoStack.push(snapObjects());
+  if (undoStack.length > 60) undoStack.shift();
+  redoStack.length = 0;
+}
+function dropNoopHistory() {   // 드래그를 시작만 하고 아무것도 안 바꿨으면 기록 취소
+  if (undoStack.length && undoStack[undoStack.length - 1] === snapObjects()) undoStack.pop();
+}
+function restoreSnap(snap) {
+  objects = JSON.parse(snap);
+  subSeq = objects.reduce((m, o) => Math.max(m, +(o.subId || 0)), subSeq);
+  selected = null;
+  selectedSet.clear();
+  refreshProps(); refreshList(); updateSubStyleVisibility();
+}
+function doUndo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapObjects());
+  restoreSnap(undoStack.pop());
+}
+function doRedo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapObjects());
+  restoreSnap(redoStack.pop());
+}
 
 /* ---------- 파일 열기 ---------- */
 function loadFile(file, opts = {}) {
@@ -937,6 +966,7 @@ $('emojiSel').onchange = () => {
   $('emojiSel').value = '';
   if (!em) return;
   if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+  pushHistory();
   const size = Math.round(cv.width / 8);
   const o = { type:'text', x: cv.width/2 - size/2, y: cv.height/2 - size/2,
               text: em, size, color:'#ffffff', bold:false, bg:false, bgColor:'#000000', font: FONTS[0][0] };
@@ -951,6 +981,7 @@ $('titleBtn').onclick = () => {
   ctx.font = 'bold ' + size + 'px ' + font;
   const text = '제목을 입력하세요';
   const tw = ctx.measureText(text).width;
+  pushHistory();
   const o = { type:'text', x: Math.max(10, (cv.width - tw) / 2), y: Math.round(cv.height * 0.05),
               text, size, color:'#ffffff', bold:true, bg:true, bgColor:'#000000', font };
   objects.push(o); select(o); setTool('select');
@@ -997,6 +1028,7 @@ cv.addEventListener('pointerdown', e => {
     return;
   }
   if (tool === 'text') {
+    pushHistory();
     const size = Math.max(24, Math.round(cv.width / 18));
     const o = { type:'text', x:p.x, y:p.y, text:'한글 문구 입력', size, color:'#ffffff', bold:true, bg:true, bgColor:'#000000', font: FONTS[0][0] };
     objects.push(o); select(o);
@@ -1009,6 +1041,7 @@ cv.addEventListener('pointerdown', e => {
   const grabR = hs / 2 + 4;
   if (!selectedSet.size && selected && selected.type === 'rect' &&
       Math.abs(p.x - (selected.x + selected.w)) < grabR && Math.abs(p.y - (selected.y + selected.h)) < grabR) {
+    pushHistory();
     drag = { mode:'resize', o: selected };
     return;
   }
@@ -1016,6 +1049,7 @@ cv.addEventListener('pointerdown', e => {
   if (!selectedSet.size && selected && selected.type === 'text' &&
       Math.abs(p.x - (selected.x + (selected._w || 50) + 8)) < grabR &&
       Math.abs(p.y - (selected.y + (selected._h || selected.size) + 6)) < grabR) {
+    pushHistory();
     drag = { mode: 'resizeText', o: selected, startSize: selected.size,
              ox: selected.x, oy: selected.y,
              startW: Math.max(20, selected._w || 50), startH: Math.max(10, selected._h || selected.size) };
@@ -1023,23 +1057,40 @@ cv.addEventListener('pointerdown', e => {
   }
   const hit = hitTest(p);
   if (hit) {
-    // AI 자막(번역 텍스트가 있는 쌍)을 드래그하면 전체 자막 위치를 한꺼번에 이동
+    // 하나만 선택하면 그 항목(자막은 박스+글자 쌍)만 이동,
+    // 여러 개 선택된 상태에서 잡으면 선택된 것 전부 함께 이동
     const isAiSub = hit.subId != null && objects.some(o => o.subId === hit.subId && o.type === 'text');
     if (selectedSet.size && selectedSet.has(hit)) {
-      if (isAiSub) drag = { mode: 'moveSubs', start: p, sx: +$('ssX').value, sy: +$('ssY').value };
-      else {
-        const items = selectedItems();
-        drag = { mode: 'moveGroup', start: p, items: items.map(o => ({ o, x: o.x, y: o.y })) };
-      }
+      drag = { mode: 'moveSel', start: p, items: buildMoveItems(selectedItems()) };
     } else {
       select(hit);
-      if (isAiSub) drag = { mode: 'moveSubs', start: p, sx: +$('ssX').value, sy: +$('ssY').value };
+      if (isAiSub) drag = { mode: 'moveSel', start: p, items: buildMoveItems([hit]) };
       else drag = { mode: 'move', o: hit, dx: p.x - hit.x, dy: p.y - hit.y };
     }
+    pushHistory();
   } else {
     select(null);
   }
 });
+
+/* 이동 대상 목록 만들기: AI 자막 쌍은 위치 보정값(offX/offY)으로, 일반 항목은 좌표로 */
+function buildMoveItems(list) {
+  const out = [], seen = new Set();
+  for (const o of list) {
+    if (o.subId != null) {
+      if (seen.has(o.subId)) continue;
+      seen.add(o.subId);
+      const rect = objects.find(x => x.subId === o.subId && x.type === 'rect');
+      const hasText = objects.some(x => x.subId === o.subId && x.type === 'text');
+      if (rect && hasText) out.push({ rect, ox: rect.offX || 0, oy: rect.offY || 0 });
+      else if (rect) out.push({ o: rect, x: rect.x, y: rect.y });
+      else out.push({ o, x: o.x, y: o.y });
+    } else {
+      out.push({ o, x: o.x, y: o.y });
+    }
+  }
+  return out;
+}
 cv.addEventListener('pointermove', e => {
   if (exporting) return;
   const p = canvasPos(e);
@@ -1050,15 +1101,20 @@ cv.addEventListener('pointermove', e => {
   }
   if (!drag) return;
   if (drag.mode === 'move') { drag.o.x = p.x - drag.dx; drag.o.y = p.y - drag.dy; }
-  else if (drag.mode === 'moveGroup') {
+  else if (drag.mode === 'moveSel') {
     const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
-    drag.items.forEach(it => { it.o.x = it.x + dx; it.o.y = it.y + dy; });
-  }
-  else if (drag.mode === 'moveSubs') {
-    $('ssX').value = Math.min(95, Math.max(5, drag.sx + (p.x - drag.start.x) / cv.width * 100));
-    $('ssY').value = Math.min(98, Math.max(5, drag.sy + (p.y - drag.start.y) / cv.height * 100));
-    syncPadInputs('ssX'); syncPadInputs('ssY');
-    applySubStyle();
+    let needStyle = false;
+    drag.items.forEach(it => {
+      if (it.rect) {   // AI 자막 쌍: 보정값으로 이동 (스타일 재적용에도 위치 유지)
+        it.rect.offX = it.ox + dx;
+        it.rect.offY = it.oy + dy;
+        needStyle = true;
+      } else {
+        it.o.x = it.x + dx;
+        it.o.y = it.y + dy;
+      }
+    });
+    if (needStyle) applySubStyle();
   }
   else if (drag.mode === 'resize') {
     drag.o.w = Math.max(10, p.x - drag.o.x);
@@ -1081,12 +1137,14 @@ cv.addEventListener('pointermove', e => {
 cv.addEventListener('pointerup', () => {
   if (tempRect) {
     if (tempRect.w > 8 && tempRect.h > 8) {
+      pushHistory();
       const o = { type:'rect', shape: $('shapeSel').value, x:tempRect.x, y:tempRect.y, w:tempRect.w, h:tempRect.h, color:'#ffffff' };
       objects.push(o); select(o);
       setTool('select');
     }
     tempRect = null;
   }
+  if (drag) dropNoopHistory();   // 클릭만 하고 안 움직였으면 기록 취소
   drag = null;
 });
 function setTool(t) {
@@ -1139,8 +1197,15 @@ document.addEventListener('keydown', e => {
     $('playBtn').click();
     return;
   }
+  // Ctrl+Z = 실행 취소, Ctrl+X·Ctrl+Y·Ctrl+Shift+Z = 다시 실행
+  if ((e.ctrlKey || e.metaKey) && !typing && !exporting) {
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
+    if (k === 'y' || k === 'x' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); return; }
+  }
   const targets = selectedItems();
   if ((e.key === 'Delete' || e.key === 'Backspace') && targets.length && !typing) {
+    pushHistory();
     const remove = new Set(targets);
     objects = objects.filter(o => !remove.has(o));
     select(null);
@@ -1165,6 +1230,7 @@ function zBlocks() {
 }
 function zMove(o, action) {   // 'front' | 'back' | 'up' | 'down'
   if (!o) return;
+  pushHistory();
   const blocks = zBlocks();
   const idx = blocks.findIndex(b => b.includes(o));
   if (idx < 0) return;
@@ -1203,6 +1269,7 @@ function refreshList() {
                   + '<span class="del" title="삭제">✕</span>';
     d.onclick = ev => {
       if (ev.target.classList.contains('del')) {
+        pushHistory();
         objects = objects.filter(x => x !== o);
         if (selected === o) selected = null;
         selectedSet.delete(o);
@@ -1220,7 +1287,7 @@ $('selectAllObjs').onclick = () => {
   selectAllObjects();
 };
 $('clearObjs').onclick = () => {
-  if (objects.length && confirm('도형과 텍스트를 모두 삭제할까요?')) { objects = []; select(null); }
+  if (objects.length && confirm('도형과 텍스트를 모두 삭제할까요?')) { pushHistory(); objects = []; select(null); }
 };
 function timeDuration() {
   return Math.max(0.1, vid.duration || parseFloat($('trimEnd').value) || 1);
@@ -1372,6 +1439,7 @@ function refreshProps() {
       ${timeRangeHTML(range)}`;
     $('bulkClearSel').onclick = () => select(null);
     $('bulkDeleteSel').onclick = () => {
+      pushHistory();
       const remove = new Set(selectedItems());
       objects = objects.filter(o => !remove.has(o));
       select(null);
@@ -1682,6 +1750,7 @@ function makeObjClip(track, items, label, cls, laneTop = 2) {
     if (exporting) return;
     e.preventDefault(); e.stopPropagation();
     c.setPointerCapture(e.pointerId);
+    pushHistory();
     const rect = $('tlTracks').getBoundingClientRect();
     const pxPerSec = rect.width / dur;
     const edge = e.target === eL ? 'L' : e.target === eR ? 'R' : null;
@@ -1715,6 +1784,7 @@ function makeObjClip(track, items, label, cls, laneTop = 2) {
     };
     const finish = () => {
       c.onpointermove = null; c.onpointerup = null;
+      dropNoopHistory();
       if (!moved) {
         // 클릭 = 선택 (자막 쌍이면 글자 쪽을 선택해서 바로 내용 수정 가능)
         const target = items.find(o => o.type === 'text') || items[0];
@@ -2466,7 +2536,9 @@ function applySubStyle() {
     if (o.subId == null) continue;
     (pairs[o.subId] = pairs[o.subId] || {})[o.type] = o;
   }
-  const targetIds = selectedSet.size ? selectedSubIds() : null;
+  // 선택된 자막이 있으면(하나든 여러 개든) 그 자막에만 적용, 없으면 전체 적용
+  const selIds = selectedSubIds();
+  const targetIds = selIds.size ? selIds : null;
   const shape = $('ssShape').value, boxColor = $('ssBoxColor').value;
   const alpha = (+$('ssAlpha').value || 100) / 100;
   const size = Math.max(10, +$('ssSize').value || 28);
@@ -2526,7 +2598,9 @@ function applySubStyle() {
         bw = halfW * 2; bh = halfH * 2;
       }
     }
-    const bx = xCenter - bw / 2, by = yCenter - bh / 2;
+    // 개별 드래그로 옮긴 위치 보정값 반영
+    const bx = xCenter - bw / 2 + (p.rect.offX || 0);
+    const by = yCenter - bh / 2 + (p.rect.offY || 0);
     Object.assign(p.rect, { shape, color: boxColor, alpha, x: bx, y: by, w: bw, h: bh });
     // 박스 안 텍스트 정렬 (가로: 왼쪽/가운데/오른쪽, 세로: 상단/중단/하단)
     if (align === 'left') t.x = bx + padX;
@@ -2579,8 +2653,9 @@ function updateSubStyleVisibility() {
   box.style.display = (hasAiSubs || hasBulkSelection) ? 'block' : 'none';
   const title = $('subStyleTitle');
   if (title) {
-    title.textContent = hasBulkSelection
-      ? `🎨 자막/선택 항목 일괄 스타일 (선택 ${selectedSet.size}개 적용)`
+    const selCnt = selectedSet.size || (selected && selected.subId != null ? 1 : 0);
+    title.textContent = selCnt
+      ? `🎨 선택 항목 스타일 (선택 ${selCnt}개에만 적용)`
       : '🎨 자막 일괄 스타일 (AI 자막 전체 적용)';
   }
 }
@@ -2687,6 +2762,7 @@ $('aiBtn').onclick = async () => {
     syncPadInputs('ssPadX');
     syncPadInputs('ssPadY');
 
+    pushHistory();
     for (const s of finals) makeSubPair(s);
     applySubStyle();
     updateSubStyleVisibility();
