@@ -915,7 +915,7 @@ function render() {
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
-function handleSize() { return Math.max(14, cv.width / 60); }
+function handleSize() { return Math.max(20, cv.width / 40); }
 
 /* ---------- 도구 선택 ---------- */
 document.querySelectorAll('.toolBtn').forEach(b => b.onclick = () => {
@@ -1005,15 +1005,17 @@ cv.addEventListener('pointerdown', e => {
   }
   // 선택 도구
   const hs = handleSize();
+  // 핸들은 그려지는 파란 네모 크기만큼만 잡힘 — 본체 드래그(이동)를 방해하지 않게
+  const grabR = hs / 2 + 4;
   if (!selectedSet.size && selected && selected.type === 'rect' &&
-      Math.abs(p.x - (selected.x + selected.w)) < hs && Math.abs(p.y - (selected.y + selected.h)) < hs) {
+      Math.abs(p.x - (selected.x + selected.w)) < grabR && Math.abs(p.y - (selected.y + selected.h)) < grabR) {
     drag = { mode:'resize', o: selected };
     return;
   }
   // 글자 모서리 핸들 = 드래그로 글자 크기 조절
   if (!selectedSet.size && selected && selected.type === 'text' &&
-      Math.abs(p.x - (selected.x + (selected._w || 50) + 8)) < hs &&
-      Math.abs(p.y - (selected.y + (selected._h || selected.size) + 6)) < hs) {
+      Math.abs(p.x - (selected.x + (selected._w || 50) + 8)) < grabR &&
+      Math.abs(p.y - (selected.y + (selected._h || selected.size) + 6)) < grabR) {
     drag = { mode: 'resizeText', o: selected, startSize: selected.size,
              ox: selected.x, oy: selected.y,
              startW: Math.max(20, selected._w || 50), startH: Math.max(10, selected._h || selected.size) };
