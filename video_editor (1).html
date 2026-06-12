@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v14</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v15</b></span>
 </header>
 
 <main>
@@ -1733,7 +1733,9 @@ function makeObjClip(track, items, label, cls, laneTop = 2, selTarget = null) {
   const untimed = ref.t0 == null;
   const t0 = ref.t0 ?? 0, t1 = ref.t1 ?? dur;
   const c = document.createElement('div');
-  c.className = 'clip ' + cls + (items.some(isObjectSelected) ? ' sel' : '');
+  // 하이라이트는 이 막대가 가리키는 대상이 선택됐을 때만 (짝꿍 막대는 표시 안 함)
+  const own = selTarget || (items.length === 1 ? items[0] : null);
+  c.className = 'clip ' + cls + ((own ? isObjectSelected(own) : items.some(isObjectSelected)) ? ' sel' : '');
   c.style.top = laneTop + 'px';
   c.style.left = (t0 / dur * 100) + '%';
   c.style.width = Math.max(0.6, (t1 - t0) / dur * 100) + '%';
