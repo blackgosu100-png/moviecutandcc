@@ -140,11 +140,11 @@
     border-left: 1px solid #2e3850; padding-left: 3px; pointer-events: none;
   }
   .tlTrack {
-    height: 26px; margin-bottom: 4px; position: relative; background: #161c2a;
+    min-height: 26px; margin-bottom: 4px; position: relative; background: #161c2a;
     border-radius: 4px;
   }
   .clip {
-    position: absolute; top: 2px; bottom: 2px; border-radius: 4px; font-size: 10px;
+    position: absolute; top: 2px; height: 22px; border-radius: 4px; font-size: 10px;
     color: #fff; overflow: hidden; white-space: nowrap; padding: 0 6px;
     line-height: 22px; cursor: grab; min-width: 6px;
   }
@@ -210,7 +210,7 @@
         <button id="saveTempBtn" style="flex:1; font-size:12px">💾 임시저장</button>
         <button id="loadTempBtn" style="flex:1; font-size:12px">↩ 임시 불러오기</button>
       </div>
-      <div class="hint" id="projectStatus">임시저장은 이 브라우저에 영상과 편집 상태를 함께 보관합니다.</div>
+      <div class="hint" id="projectStatus"></div>
     </div>
 
     <div class="section">
@@ -234,15 +234,6 @@
         <span id="aiStatus" style="flex:1; font-size:12px; color:#7ee087"></span>
         <button id="aiCancelBtn" class="danger" style="font-size:11px; padding:4px 8px">중단</button>
       </div>
-      <div class="hint" id="aiHint">
-        영상 하단의 중국어 자막을 자동으로 찾아 한글로 번역한 뒤,
-        가리개+한글 텍스트를 표시 구간까지 맞춰서 자동 추가합니다.
-        어긋난 부분만 아래 2단계 도구로 손보면 됩니다.<br>
-        · <b>수강생 추천: Gemini</b> — 무료 키로 쓸 수 있지만 무료 한도 때문에 중간중간 대기합니다.<br>
-        · <b>한도가 답답하면: ChatGPT 또는 Claude</b> — 유료 키가 필요하지만 대기 없이 빠르게
-        진행됩니다. (영상 1개 번역 비용은 수십 원 수준)<br>
-        · AI마다 키를 따로 저장하므로 골라가며 쓸 수 있습니다. 키는 이 컴퓨터(브라우저)에만 저장됩니다.
-      </div>
     </div>
 
     <div class="section">
@@ -258,13 +249,11 @@
           <option value="mosaic">🔲 모자이크</option>
         </select>
       </div>
-      <div class="row" id="emojiRow" style="gap:3px"></div>
-      <div class="hint">
-        · <b>가리개</b>: 모양을 고르고 중국어 부분을 드래그하면 가려집니다.<br>
-        &nbsp;&nbsp;<b>모자이크</b>를 고르면 흐림 처리로 자연스럽게 가려집니다.<br>
-        · <b>텍스트</b>: 영상 위 원하는 위치를 클릭하면 글자가 추가됩니다.<br>
-        · <b>이모티콘</b>: 위 그림을 누르면 영상에 추가됩니다. (글자처럼 이동/크기조절)<br>
-        · <b>선택</b>: 클릭해서 옮기고, 오른쪽 아래 모서리를 잡아 크기 조절.
+      <div class="row">
+        <button id="titleBtn" title="영상 상단에 제목 글자를 넣습니다">📌 제목 넣기</button>
+        <select id="emojiSel" title="고르면 영상 가운데에 추가됩니다 (드래그로 이동)">
+          <option value="">😀 이모티콘…</option>
+        </select>
       </div>
       <div id="propBox" style="display:none; margin-top:8px"></div>
       <div id="subStyleBox" style="display:none; margin-top:10px; border:1px solid #e08a00; border-radius:6px; padding:10px; background:#0f1420">
@@ -321,9 +310,6 @@
         <div class="row">
           <label>세로 여백</label><input type="range" id="ssPadYRange" min="0" max="80" value="10" class="rangeMini">
         </div>
-        <div class="hint" id="subStyleHint">바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다.
-        <b>영상에서 자막을 드래그하면 전체 자막 위치가 한꺼번에 이동</b>합니다.
-        글자 내용만 "추가된 항목"에서 항목별로 수정하세요.</div>
       </div>
       <div style="margin-top:8px">
         <div class="row" style="justify-content:space-between">
@@ -359,11 +345,11 @@
         <label>끝&nbsp;&nbsp;</label><input type="number" id="trimEnd" min="0" step="0.1" value="0" style="width:70px">초
         <button id="setEndBtn" style="font-size:11px;padding:4px 7px">현재 위치</button>
       </div>
-      <div class="hint">중국 로고가 나오는 앞·뒤 부분은 시작/끝 시간을 조절해서 잘라내세요.</div>
       <div class="hint" id="outLen" style="color:#7ee087; font-size:12px; margin-top:6px"></div>
       <div class="row" style="margin-top:10px; justify-content:space-between">
         <label style="color:#ffb648; font-weight:bold">🎵 배경음악 보관함</label>
-        <button id="bgmAddBtn" style="font-size:11px; padding:4px 8px">➕ 음악 추가</button>
+        <button id="bgmAddBtn" style="font-size:11px; padding:4px 8px"
+          title="무료 음원: 유튜브 오디오 라이브러리(studio.youtube.com), Pixabay(pixabay.com/music)">➕ 음악 추가</button>
         <input type="file" id="bgmInput" accept="audio/*" multiple hidden>
       </div>
       <div id="bgmList" style="display:flex; flex-direction:column; gap:4px"></div>
@@ -371,22 +357,11 @@
         <label id="bgmName" style="width:100%; color:#7ee087"></label>
         <label>음량</label><input type="range" id="bgmVol" min="0" max="100" value="50" style="flex:1">
       </div>
-      <div class="hint">
-        한 번 추가한 음악은 보관함에 계속 남아 클릭만으로 재사용할 수 있습니다.
-        (클릭=선택, 다시 클릭=해제, ▶=미리듣기, ✕=삭제)<br>
-        무료 음원 추천: <b>유튜브 오디오 라이브러리</b>(studio.youtube.com → 오디오 보관함),
-        <b>Pixabay</b>(pixabay.com/music) — 저작권 걱정 없이 쓸 수 있습니다.<br>
-        음악이 짧으면 자동 반복되고, "소리 제거"를 체크하면 원본 중국어 소리는 빠지고 음악만 들어갑니다.
-      </div>
     </div>
 
     <div class="section">
       <h2>4단계. 완성 영상 저장</h2>
-      <button id="exportBtn" class="primary full">⬇ 영상 저장하기</button>
-      <div class="hint">
-        저장 시간은 (자른 구간 길이 ÷ 배속)만큼 걸립니다.<br>
-        저장하는 동안 이 탭을 닫거나 다른 창으로 가리지 마세요.
-      </div>
+      <button id="exportBtn" class="primary full" title="저장하는 동안 이 탭을 닫거나 가리지 마세요">⬇ 영상 저장하기</button>
     </div>
   </aside>
 </main>
@@ -394,19 +369,15 @@
 <div id="timeline">
   <div id="tlHeader">
     <button id="splitBtn">✂ 현재 위치에서 자르기</button>
-    <span class="hint">
-      <b style="color:#7ee087">영상 조각 클릭 = 삭제/복원</b> ·
-      자막/모양 막대는 끌어서 시간 이동, 양끝을 끌어 길이 조절 ·
-      막대 클릭 = 선택(오른쪽에서 내용 수정)
-    </span>
+    <span class="hint">조각 클릭 = 삭제/복원 · 막대 드래그 = 이동 · 양끝 = 길이 · 더블클릭 = 글자 수정 · 스페이스바 = 재생/멈춤</span>
   </div>
   <div id="tlBody">
     <div class="tlLabels">
       <div class="spacer"></div>
-      <div class="tlLabel">영상</div>
-      <div class="tlLabel">음성</div>
-      <div class="tlLabel">자막</div>
-      <div class="tlLabel">모양</div>
+      <div class="tlLabel" id="lblVideo">영상</div>
+      <div class="tlLabel" id="lblAudio">음성</div>
+      <div class="tlLabel" id="lblSub">자막</div>
+      <div class="tlLabel" id="lblShape">모양</div>
     </div>
     <div id="tlTracks">
       <div id="tlRuler"></div>
@@ -909,22 +880,37 @@ document.querySelectorAll('.toolBtn').forEach(b => b.onclick = () => {
 });
 $('shapeSel').onchange = () => setTool('rect');
 
-/* ---------- 이모티콘 빠른 추가 ---------- */
+/* ---------- 이모티콘 (드롭다운에서 선택) ---------- */
 const EMOJIS = ['🔥','💯','✨','⭐','👍','✅','❗','⚡','💰','🎁','🚚','📦','😍','🤩','🏆','💝'];
 EMOJIS.forEach(em => {
-  const b = document.createElement('button');
-  b.textContent = em;
-  b.style.cssText = 'padding:4px 6px; font-size:16px';
-  b.title = '영상에 ' + em + ' 추가';
-  b.onclick = () => {
-    if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
-    const size = Math.round(cv.width / 8);
-    const o = { type:'text', x: cv.width/2 - size/2, y: cv.height/2 - size/2,
-                text: em, size, color:'#ffffff', bold:false, bg:false, bgColor:'#000000', font: FONTS[0][0] };
-    objects.push(o); select(o); setTool('select');
-  };
-  $('emojiRow').appendChild(b);
+  const op = document.createElement('option');
+  op.value = em; op.textContent = em;
+  $('emojiSel').appendChild(op);
 });
+$('emojiSel').onchange = () => {
+  const em = $('emojiSel').value;
+  $('emojiSel').value = '';
+  if (!em) return;
+  if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+  const size = Math.round(cv.width / 8);
+  const o = { type:'text', x: cv.width/2 - size/2, y: cv.height/2 - size/2,
+              text: em, size, color:'#ffffff', bold:false, bg:false, bgColor:'#000000', font: FONTS[0][0] };
+  objects.push(o); select(o); setTool('select');
+};
+
+/* ---------- 상단 제목 타이틀 빠른 추가 ---------- */
+$('titleBtn').onclick = () => {
+  if (!vid.duration) { alert('먼저 영상을 불러와 주세요.'); return; }
+  const size = Math.max(28, Math.round(cv.width / 12));
+  const font = FONTS[1][0];   // 지마켓 산스 (상품 제목 느낌)
+  ctx.font = 'bold ' + size + 'px ' + font;
+  const text = '제목을 입력하세요';
+  const tw = ctx.measureText(text).width;
+  const o = { type:'text', x: Math.max(10, (cv.width - tw) / 2), y: Math.round(cv.height * 0.05),
+              text, size, color:'#ffffff', bold:true, bg:true, bgColor:'#000000', font };
+  objects.push(o); select(o); setTool('select');
+  openInlineTextEdit(o);   // 바로 글자 입력 시작
+};
 
 /* ---------- 마우스 좌표 변환 ---------- */
 function canvasPos(e) {
@@ -1036,10 +1022,55 @@ cv.addEventListener('pointerup', () => {
 function setTool(t) {
   document.querySelector(`.toolBtn[data-tool="${t}"]`).click();
 }
+
+/* 화면의 글자를 더블클릭하면 그 자리에서 바로 수정 */
+cv.addEventListener('dblclick', e => {
+  if (exporting || !vid.duration) return;
+  const hit = hitTest(canvasPos(e));
+  if (hit && hit.type === 'text') openInlineTextEdit(hit);
+});
+function openInlineTextEdit(o) {
+  select(o);
+  const old = document.getElementById('inlineEdit');
+  if (old) old.remove();
+  const r = cv.getBoundingClientRect();
+  const sx = r.width / cv.width, sy = r.height / cv.height;
+  const ta = document.createElement('textarea');
+  ta.id = 'inlineEdit';
+  ta.value = o.text;
+  ta.rows = Math.max(1, o.text.split('\n').length);
+  ta.style.cssText =
+    `position:fixed; left:${Math.max(8, r.left + (o.x - 8) * sx)}px; top:${Math.max(8, r.top + (o.y - 6) * sy)}px;` +
+    `min-width:${Math.max(170, ((o._w || 120) + 40) * sx)}px;` +
+    `font-size:${Math.max(14, Math.round(o.size * sy))}px; line-height:1.25;` +
+    'background:rgba(10,14,22,.92); color:#fff; border:2px solid #3da9ff; border-radius:6px;' +
+    'padding:4px 8px; z-index:60; resize:none; font-family:inherit;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  const commit = () => {
+    if (ta.value.trim()) o.text = ta.value;
+    ta.remove();
+    refreshList(); refreshProps();
+    if (o.subId != null) applySubStyle();
+  };
+  ta.addEventListener('blur', commit);
+  ta.addEventListener('keydown', ev => {
+    ev.stopPropagation();
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); ta.blur(); }
+    if (ev.key === 'Escape') { ta.value = o.text; ta.blur(); }
+  });
+}
+
 document.addEventListener('keydown', e => {
+  const typing = ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+  // 스페이스바 = 재생/멈춤
+  if (e.code === 'Space' && !typing && vid.duration && !exporting) {
+    e.preventDefault();
+    $('playBtn').click();
+    return;
+  }
   const targets = selectedItems();
-  if ((e.key === 'Delete' || e.key === 'Backspace') && targets.length &&
-      !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && targets.length && !typing) {
     const remove = new Set(targets);
     objects = objects.filter(o => !remove.has(o));
     select(null);
@@ -1126,7 +1157,6 @@ function timeRangeHTML(o) {
         <button id="pT0Now" style="font-size:11px;padding:3px 6px">시작=현재 위치</button>
         <button id="pT1Now" style="font-size:11px;padding:3px 6px">끝=현재 위치</button>
       </div>
-      <div class="hint">핸들을 드래그해서 시작/끝 시간을 조정하고, 주황 구간을 잡으면 표시 구간 전체가 이동합니다.</div>
     </div>`;
 }
 function wireTimeRange(targetInput) {
@@ -1238,7 +1268,6 @@ function refreshProps() {
         <button id="bulkClearSel" style="font-size:11px;padding:4px 8px">선택 해제</button>
         <button id="bulkDeleteSel" class="danger" style="font-size:11px;padding:4px 8px">선택 삭제</button>
       </div>
-      <div class="hint">선택된 항목은 영상에서 함께 이동할 수 있고, 아래 자막 일괄 스타일 변경 대상이 됩니다.</div>
       ${timeRangeHTML(range)}`;
     $('bulkClearSel').onclick = () => select(null);
     $('bulkDeleteSel').onclick = () => {
@@ -1266,9 +1295,6 @@ function refreshProps() {
         <input type="range" id="pAlpha" min="10" max="100" value="${Math.round((selected.alpha ?? 1) * 100)}" style="flex:1">
         <span style="font-size:11px; color:#aab3c8" id="pAlphaV">${Math.round((selected.alpha ?? 1) * 100)}%</span>
       </div>
-      <div class="hint" id="pRectHint">${isMosaic
-        ? '모자이크는 영상 화면을 흐림 처리하므로 색상이 필요 없습니다.'
-        : '💧 배경색 추출을 누른 뒤 영상에서 가리고 싶은 부분 <b>주변 배경</b>을 클릭하면 똑같은 색으로 자연스럽게 가려집니다.'}</div>
       ${timeRangeHTML(selected)}`;
     $('pShape').onchange = e => { selected.shape = e.target.value; refreshProps(); refreshList(); };
     $('pColor').oninput = e => selected.color = e.target.value;
@@ -1487,13 +1513,14 @@ function togglePiece(p) {
 }
 
 /* 자막/모양 막대 드래그 (이동/길이조절/클릭선택) */
-function makeObjClip(track, items, label, cls) {
+function makeObjClip(track, items, label, cls, laneTop = 2) {
   const ref = items[0];
   const dur = tlDur();
   const untimed = ref.t0 == null;
   const t0 = ref.t0 ?? 0, t1 = ref.t1 ?? dur;
   const c = document.createElement('div');
   c.className = 'clip ' + cls + (items.some(isObjectSelected) ? ' sel' : '');
+  c.style.top = laneTop + 'px';
   c.style.left = (t0 / dur * 100) + '%';
   c.style.width = Math.max(0.6, (t1 - t0) / dur * 100) + '%';
   c.title = untimed
@@ -1552,7 +1579,33 @@ function makeObjClip(track, items, label, cls) {
     c.onpointerup = finish;
     c.onpointercancel = finish;
   };
+  c.ondblclick = () => {
+    const t = items.find(o => o.type === 'text');
+    if (t) openInlineTextEdit(t);
+  };
   track.appendChild(c);
+}
+
+/* 시간이 겹치는 막대는 자동으로 줄(레인)을 나눠 배치 */
+const LANE_H = 26;
+function layoutClips(track, defs, labelEl) {
+  const dur = tlDur();
+  defs.forEach(d => {
+    d.t0 = d.items[0].t0 ?? 0;
+    d.t1 = d.items[0].t1 ?? dur;
+  });
+  defs.sort((a, b) => a.t0 - b.t0);
+  const laneEnds = [];
+  defs.forEach(d => {
+    let lane = laneEnds.findIndex(end => d.t0 >= end - 0.01);
+    if (lane < 0) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = d.t1;
+    d.lane = lane;
+  });
+  const lanes = Math.max(1, laneEnds.length);
+  track.style.height = (lanes * LANE_H) + 'px';
+  if (labelEl) labelEl.style.height = (lanes * LANE_H) + 'px';
+  defs.forEach(d => makeObjClip(track, d.items, d.label, d.cls, 2 + d.lane * LANE_H));
 }
 
 function rebuildTimeline() {
@@ -1609,28 +1662,24 @@ function rebuildTimeline() {
   }
 
   // 자막 트랙(AI 자막 쌍 + 일반 텍스트) / 모양 트랙(가리개 도형)
+  // 시간이 겹치는 막대는 자동으로 줄을 나눠서 겹치지 않게 표시
   const ts = $('trackSub'); ts.innerHTML = '';
   const tsh = $('trackShape'); tsh.innerHTML = '';
   const groups = {};
-  const singleTexts = [], singleRects = [];
+  const subDefs = [], shapeDefs = [];
+  const short = t => t.length > 14 ? t.slice(0, 14) + '…' : t;
   for (const o of objects) {
     if (o.subId != null) (groups[o.subId] = groups[o.subId] || []).push(o);
-    else if (o.type === 'text') singleTexts.push([o]);
-    else singleRects.push([o]);
+    else if (o.type === 'text') subDefs.push({ items: [o], label: short(o.text), cls: 'sub' });
+    else shapeDefs.push({ items: [o], label: SHAPE_NAMES[o.shape || 'rect'], cls: 'shape' });
   }
   for (const id of Object.keys(groups)) {
     const items = groups[id];
     const t = items.find(o => o.type === 'text');
-    const label = t ? (t.text.length > 14 ? t.text.slice(0, 14) + '…' : t.text) : '가리개만';
-    makeObjClip(ts, items, label, 'sub');
+    subDefs.push({ items, label: t ? short(t.text) : '가리개만', cls: 'sub' });
   }
-  for (const items of singleTexts) {
-    const t = items[0];
-    makeObjClip(ts, items, t.text.length > 14 ? t.text.slice(0, 14) + '…' : t.text, 'sub');
-  }
-  for (const items of singleRects) {
-    makeObjClip(tsh, items, SHAPE_NAMES[items[0].shape || 'rect'], 'shape');
-  }
+  layoutClips(ts, subDefs, $('lblSub'));
+  layoutClips(tsh, shapeDefs, $('lblShape'));
 }
 
 /* 눈금자 드래그 = 위치 이동 */
@@ -2288,12 +2337,6 @@ function updateSubStyleVisibility() {
     title.textContent = hasBulkSelection
       ? `🎨 자막/선택 항목 일괄 스타일 (선택 ${selectedSet.size}개 적용)`
       : '🎨 자막 일괄 스타일 (AI 자막 전체 적용)';
-  }
-  const hint = $('subStyleHint');
-  if (hint) {
-    hint.innerHTML = hasBulkSelection
-      ? '바꾸는 즉시 <b>현재 선택된 항목</b>에 적용됩니다. AI 자막은 가리개+글자가 같은 기준으로 움직이고, 일반 텍스트/가리개는 공통 스타일만 바뀝니다.'
-      : '바꾸는 즉시 AI 자막 전체(가리개+글자)에 똑같이 적용됩니다. <b>영상에서 자막을 드래그하면 전체 자막 위치가 한꺼번에 이동</b>합니다. 글자 내용만 "추가된 항목"에서 항목별로 수정하세요.';
   }
 }
 
