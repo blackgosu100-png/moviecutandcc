@@ -276,6 +276,11 @@
           </select>
         </div>
         <div class="row">
+          <label title="원본 중국어 자막이 박스보다 넓으면 그 부분만 박스를 늘려서 가립니다. 끄면 박스가 전부 같은 크기가 되지만 중국어가 살짝 보일 수 있습니다.">
+            <input type="checkbox" id="ssCoverGuard" checked> 원본 중국어 자동 가림
+          </label>
+        </div>
+        <div class="row">
           <label>박스 불투명도</label>
           <input type="range" id="ssAlpha" min="10" max="100" value="100" style="flex:1">
           <input type="number" id="ssAlphaN" class="dragNum" min="10" max="100" value="100">
@@ -484,7 +489,8 @@ function projectTx(mode, fn) {
 }
 function controlState() {
   const ids = ['ssShape','ssBoxColor','ssAlpha','ssSize','ssTextColor','ssBold','ssFont','ssX','ssY',
-               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW','ssSizeMode'];
+               'ssAlign','ssAlignV','ssPadX','ssPadY','ssPadXRange','ssPadYRange','ssStroke','ssStrokeW',
+               'ssSizeMode','ssCoverGuard'];
   const out = {};
   ids.forEach(id => {
     const el = $(id);
@@ -830,17 +836,29 @@ function shapePath(o, box) {
   }
 }
 function fillShapeBox(o, box) { shapePath(o, box); ctx.fill(); }
+function coverGuardOn() {
+  const el = $('ssCoverGuard');
+  return el ? el.checked : true;
+}
 function drawShape(o) {
   if (o.shape === 'mosaic') { drawMosaic(o); return; }
   const prevA = ctx.globalAlpha;
   if (o.alpha != null) ctx.globalAlpha = prevA * o.alpha;
   ctx.fillStyle = o.color;
-  if (o.cover && o.subId != null && !boxContainsBox(o, o.cover)) fillShapeBox(o, o.cover);
-  fillShapeBox(o, o);
+  // 원본 중국어 자동 가림: 박스보다 원본 자막이 넓으면, 박스를 그 구간만큼
+  // 자연스럽게 늘린 한 덩어리 모양으로 그린다 (튀어나온 덧칠 탭 방지)
+  let box = o;
+  if (coverGuardOn() && o.cover && o.subId != null && !boxContainsBox(o, o.cover)) {
+    const x1 = Math.min(o.x, o.cover.x), y1 = Math.min(o.y, o.cover.y);
+    const x2 = Math.max(o.x + o.w, o.cover.x + o.cover.w);
+    const y2 = Math.max(o.y + o.h, o.cover.y + o.cover.h);
+    box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  }
+  fillShapeBox(o, box);
   if (o.strokeW > 0) {
     ctx.strokeStyle = o.strokeColor || '#000000';
     ctx.lineWidth = o.strokeW;
-    shapePath(o, o);
+    shapePath(o, box);
     ctx.stroke();
   }
   ctx.globalAlpha = prevA;
@@ -2563,7 +2581,7 @@ function updateSubStyleVisibility() {
 $('ssFont').innerHTML = FONTS.map(([v, n]) => `<option value='${v}'>${n}</option>`).join('');
 ['ssShape', 'ssBoxColor', 'ssAlpha', 'ssAlphaN', 'ssSize', 'ssTextColor', 'ssBold', 'ssFont',
  'ssX', 'ssXN', 'ssY', 'ssYN', 'ssAlign', 'ssAlignV',
- 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW', 'ssStrokeWN', 'ssSizeMode']
+ 'ssPadX', 'ssPadY', 'ssPadXRange', 'ssPadYRange', 'ssStroke', 'ssStrokeW', 'ssStrokeWN', 'ssSizeMode', 'ssCoverGuard']
   .forEach(id => $(id).addEventListener('input', () => {
     syncPadInputs(id);
     applySubStyle();
