@@ -1132,15 +1132,33 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* ---------- 층 순서 (앞으로/뒤로) ---------- */
-function zMove(o, toFront) {
+/* ---------- 층 순서 (한 칸/맨 끝 앞뒤 이동) ---------- */
+function zBlocks() {
+  // AI 자막 쌍(도형+글자)은 한 덩어리로 움직인다
+  const blocks = [];
+  const seen = new Set();
+  for (const o of objects) {
+    if (o.subId != null) {
+      if (seen.has(o.subId)) continue;
+      seen.add(o.subId);
+      const b = objects.filter(x => x.subId === o.subId);
+      b.sort((a, c) => (a.type === 'rect' ? 0 : 1) - (c.type === 'rect' ? 0 : 1));
+      blocks.push(b);
+    } else blocks.push([o]);
+  }
+  return blocks;
+}
+function zMove(o, action) {   // 'front' | 'back' | 'up' | 'down'
   if (!o) return;
-  const block = o.subId != null ? objects.filter(x => x.subId === o.subId) : [o];
-  objects = objects.filter(x => !block.includes(x));
-  // AI 자막 쌍은 항상 도형이 글자 뒤에 오도록 순서 유지
-  block.sort((a, b) => (a.type === 'rect' ? 0 : 1) - (b.type === 'rect' ? 0 : 1));
-  if (toFront) objects.push(...block);
-  else objects.unshift(...block);
+  const blocks = zBlocks();
+  const idx = blocks.findIndex(b => b.includes(o));
+  if (idx < 0) return;
+  const [blk] = blocks.splice(idx, 1);
+  if (action === 'front') blocks.push(blk);
+  else if (action === 'back') blocks.unshift(blk);
+  else if (action === 'up') blocks.splice(Math.min(blocks.length, idx + 1), 0, blk);
+  else blocks.splice(Math.max(0, idx - 1), 0, blk);
+  objects = blocks.flat();
   refreshList();
   refreshProps();
 }
@@ -1352,8 +1370,10 @@ function refreshProps() {
     const isMosaic = selected.shape === 'mosaic';
     box.innerHTML = `
       <div class="row"><label>순서</label>
-        <button id="pToFront" style="font-size:11px;padding:4px 8px" title="다른 항목 위에 보이게">⬆ 맨 앞으로</button>
-        <button id="pToBack" style="font-size:11px;padding:4px 8px" title="글자 등 다른 항목 뒤로 보내기">⬇ 맨 뒤로</button>
+        <button id="pUp" style="font-size:11px;padding:4px 7px" title="한 칸 앞으로">⬆ 앞으로</button>
+        <button id="pDown" style="font-size:11px;padding:4px 7px" title="한 칸 뒤로">⬇ 뒤로</button>
+        <button id="pToFront" style="font-size:11px;padding:4px 7px" title="모든 항목 위로">⏫ 맨 앞</button>
+        <button id="pToBack" style="font-size:11px;padding:4px 7px" title="모든 항목 뒤로">⏬ 맨 뒤</button>
       </div>
       <div class="row"><label>모양</label>
         <select id="pShape">${Object.entries(SHAPE_NAMES).map(([v,n]) =>
@@ -1393,8 +1413,10 @@ function refreshProps() {
   } else {
     box.innerHTML = `
       <div class="row"><label>순서</label>
-        <button id="pToFront" style="font-size:11px;padding:4px 8px" title="다른 항목 위에 보이게">⬆ 맨 앞으로</button>
-        <button id="pToBack" style="font-size:11px;padding:4px 8px" title="다른 항목 뒤로 보내기">⬇ 맨 뒤로</button>
+        <button id="pUp" style="font-size:11px;padding:4px 7px" title="한 칸 앞으로">⬆ 앞으로</button>
+        <button id="pDown" style="font-size:11px;padding:4px 7px" title="한 칸 뒤로">⬇ 뒤로</button>
+        <button id="pToFront" style="font-size:11px;padding:4px 7px" title="모든 항목 위로">⏫ 맨 앞</button>
+        <button id="pToBack" style="font-size:11px;padding:4px 7px" title="모든 항목 뒤로">⏬ 맨 뒤</button>
       </div>
       <textarea id="pText" rows="2">${selected.text}</textarea>
       <div class="row" style="margin-top:6px"><label>글씨체</label>
@@ -1437,8 +1459,10 @@ function refreshProps() {
       selected.strokeW = v; $('pStrokeW').value = v;
     };
   }
-  $('pToFront').onclick = () => zMove(selected, true);
-  $('pToBack').onclick = () => zMove(selected, false);
+  $('pUp').onclick = () => zMove(selected, 'up');
+  $('pDown').onclick = () => zMove(selected, 'down');
+  $('pToFront').onclick = () => zMove(selected, 'front');
+  $('pToBack').onclick = () => zMove(selected, 'back');
   wireTimeRange(selected);
 }
 
