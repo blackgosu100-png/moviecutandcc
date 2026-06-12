@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v18</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v19</b></span>
 </header>
 
 <main>
@@ -629,6 +629,7 @@ let seeking = false;
 $('seek').oninput = e => { seeking = true; if (vid.duration) vid.currentTime = (e.target.value/1000) * vid.duration; };
 $('seek').onchange = () => seeking = false;
 $('playBtn').onclick = () => {
+  $('playBtn').blur();   // 포커스를 남기지 않아 스페이스바와 충돌하지 않게
   if (vid.paused) {
     vid.playbackRate = curSpeed(); vid.muted = $('muteChk').checked; vid.play();
     if (bgmLoaded) { ensureAudioGraph(); ac.resume(); bgm.play(); }
@@ -1175,6 +1176,11 @@ document.addEventListener('keydown', e => {
   // 스페이스바 = 재생/멈춤
   if (e.code === 'Space' && !typing && vid.duration && !exporting) {
     e.preventDefault();
+    // 마지막에 누른 버튼에 포커스가 남아 있으면 스페이스가 그 버튼을 한 번 더 눌러
+    // 재생이 바로 꺼지는(또는 엉뚱한 버튼이 눌리는) 문제 방지
+    if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
+      document.activeElement.blur();
+    }
     $('playBtn').click();
     return;
   }
