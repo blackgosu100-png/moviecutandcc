@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v16</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v17</b></span>
 </header>
 
 <main>
@@ -869,14 +869,23 @@ function drawShape(o) {
   const prevA = ctx.globalAlpha;
   if (o.alpha != null) ctx.globalAlpha = prevA * o.alpha;
   ctx.fillStyle = o.color;
-  // 원본 중국어 자동 가림: 박스보다 원본 자막이 넓으면, 박스를 그 구간만큼
-  // 자연스럽게 늘린 한 덩어리 모양으로 그린다 (튀어나온 덧칠 탭 방지)
+  // 원본 중국어 자동 가림:
+  // - 박스가 원래 자리와 겹쳐 있으면 → 한 덩어리로 자연스럽게 확장
+  // - 박스를 멀리 옮겼으면 → 박스는 제자리에 그대로, 원래 자리만 별도 패치로 가림
+  //   (예전처럼 박스가 원래 자리까지 쭉 늘어나 거대해지는 것 방지)
   let box = o;
   if (coverGuardOn() && o.cover && o.subId != null && !boxContainsBox(o, o.cover)) {
-    const x1 = Math.min(o.x, o.cover.x), y1 = Math.min(o.y, o.cover.y);
-    const x2 = Math.max(o.x + o.w, o.cover.x + o.cover.w);
-    const y2 = Math.max(o.y + o.h, o.cover.y + o.cover.h);
-    box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    const ov = o.cover;
+    const intersects = o.x < ov.x + ov.w && o.x + o.w > ov.x &&
+                       o.y < ov.y + ov.h && o.y + o.h > ov.y;
+    if (intersects) {
+      const x1 = Math.min(o.x, ov.x), y1 = Math.min(o.y, ov.y);
+      const x2 = Math.max(o.x + o.w, ov.x + ov.w);
+      const y2 = Math.max(o.y + o.h, ov.y + ov.h);
+      box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    } else {
+      fillShapeBox(o, ov);
+    }
   }
   fillShapeBox(o, box);
   if (o.strokeW > 0) {
