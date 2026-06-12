@@ -1132,6 +1132,19 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ---------- 층 순서 (앞으로/뒤로) ---------- */
+function zMove(o, toFront) {
+  if (!o) return;
+  const block = o.subId != null ? objects.filter(x => x.subId === o.subId) : [o];
+  objects = objects.filter(x => !block.includes(x));
+  // AI 자막 쌍은 항상 도형이 글자 뒤에 오도록 순서 유지
+  block.sort((a, b) => (a.type === 'rect' ? 0 : 1) - (b.type === 'rect' ? 0 : 1));
+  if (toFront) objects.push(...block);
+  else objects.unshift(...block);
+  refreshList();
+  refreshProps();
+}
+
 /* ---------- 선택 / 속성 패널 ---------- */
 function select(o) {
   selectedSet.clear();
@@ -1338,6 +1351,10 @@ function refreshProps() {
   if (selected.type === 'rect') {
     const isMosaic = selected.shape === 'mosaic';
     box.innerHTML = `
+      <div class="row"><label>순서</label>
+        <button id="pToFront" style="font-size:11px;padding:4px 8px" title="다른 항목 위에 보이게">⬆ 맨 앞으로</button>
+        <button id="pToBack" style="font-size:11px;padding:4px 8px" title="글자 등 다른 항목 뒤로 보내기">⬇ 맨 뒤로</button>
+      </div>
       <div class="row"><label>모양</label>
         <select id="pShape">${Object.entries(SHAPE_NAMES).map(([v,n]) =>
           `<option value="${v}" ${v===(selected.shape||'rect')?'selected':''}>${n}</option>`).join('')}</select>
@@ -1375,6 +1392,10 @@ function refreshProps() {
     $('pickBtn').onclick = () => { pickingColor = true; cv.style.cursor = 'copy'; };
   } else {
     box.innerHTML = `
+      <div class="row"><label>순서</label>
+        <button id="pToFront" style="font-size:11px;padding:4px 8px" title="다른 항목 위에 보이게">⬆ 맨 앞으로</button>
+        <button id="pToBack" style="font-size:11px;padding:4px 8px" title="다른 항목 뒤로 보내기">⬇ 맨 뒤로</button>
+      </div>
       <textarea id="pText" rows="2">${selected.text}</textarea>
       <div class="row" style="margin-top:6px"><label>글씨체</label>
         <select id="pFont" style="max-width:170px">${FONTS.map(([v,n]) =>
@@ -1416,6 +1437,8 @@ function refreshProps() {
       selected.strokeW = v; $('pStrokeW').value = v;
     };
   }
+  $('pToFront').onclick = () => zMove(selected, true);
+  $('pToBack').onclick = () => zMove(selected, false);
   wireTimeRange(selected);
 }
 
