@@ -186,7 +186,7 @@
 <body>
 <header>
   <h1>🎬 쿠팡 영상 간편 편집기</h1>
-  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v13</b></span>
+  <span class="sub">AI 자동 번역 · 중국어 가리기 · 한글 텍스트 · 배속 · 구간 자르기 <b style="color:#7ee087">v14</b></span>
 </header>
 
 <main>
@@ -1727,7 +1727,7 @@ function togglePiece(p) {
 }
 
 /* 자막/모양 막대 드래그 (이동/길이조절/클릭선택) */
-function makeObjClip(track, items, label, cls, laneTop = 2) {
+function makeObjClip(track, items, label, cls, laneTop = 2, selTarget = null) {
   const ref = items[0];
   const dur = tlDur();
   const untimed = ref.t0 == null;
@@ -1786,8 +1786,8 @@ function makeObjClip(track, items, label, cls, laneTop = 2) {
       c.onpointermove = null; c.onpointerup = null;
       dropNoopHistory();
       if (!moved) {
-        // 클릭 = 선택 (자막 쌍이면 글자 쪽을 선택해서 바로 내용 수정 가능)
-        const target = items.find(o => o.type === 'text') || items[0];
+        // 클릭 = 선택 (자막 트랙 막대는 글자, 모양 트랙 막대는 도형이 선택됨)
+        const target = selTarget || items.find(o => o.type === 'text') || items[0];
         select(target);
         vid.currentTime = Math.min(tlDur(), Math.max(0, (items[0].t0 ?? 0) + 0.05));
         updateTime();
@@ -1832,7 +1832,7 @@ function layoutClips(track, defs, labelEl) {
   const lanes = Math.max(1, laneEnds.length);
   track.style.height = (lanes * LANE_H) + 'px';
   if (labelEl) labelEl.style.height = (lanes * LANE_H) + 'px';
-  defs.forEach(d => makeObjClip(track, d.items, d.label, d.cls, 2 + d.lane * LANE_H));
+  defs.forEach(d => makeObjClip(track, d.items, d.label, d.cls, 2 + d.lane * LANE_H, d.sel || null));
 }
 
 function rebuildTimeline() {
@@ -1900,10 +1900,14 @@ function rebuildTimeline() {
     else if (o.type === 'text') subDefs.push({ items: [o], label: short(o.text), cls: 'sub' });
     else shapeDefs.push({ items: [o], label: SHAPE_NAMES[o.shape || 'rect'], cls: 'shape' });
   }
+  // AI 자막 쌍: 글자는 자막 트랙, 도형은 모양 트랙에 따로 표시하되
+  // 두 막대는 연동 — 어느 쪽을 움직여도 시간이 함께 바뀐다
   for (const id of Object.keys(groups)) {
     const items = groups[id];
     const t = items.find(o => o.type === 'text');
-    subDefs.push({ items, label: t ? short(t.text) : '도형만', cls: 'sub' });
+    const r = items.find(o => o.type === 'rect');
+    if (t) subDefs.push({ items, label: short(t.text), cls: 'sub', sel: t });
+    if (r) shapeDefs.push({ items, label: SHAPE_NAMES[r.shape || 'rect'], cls: 'shape', sel: r });
   }
   layoutClips(ts, subDefs, $('lblSub'));
   layoutClips(tsh, shapeDefs, $('lblShape'));
