@@ -665,6 +665,23 @@ function ensureAudioGraph() {
   src.connect(bgmGain);
   bgmGain.connect(ac.destination);
 }
+/* 작업 완료 알림음 (띠링~) — 별도 음원 파일 없이 브라우저에서 생성 */
+function playDoneSound() {
+  try {
+    ensureAudioGraph();
+    ac.resume();
+    const t0 = ac.currentTime + 0.05;
+    [[880, 0], [1318.5, 0.18]].forEach(([freq, dt]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.35, t0 + dt + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.7);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + 0.8);
+    });
+  } catch (e) { /* 소리 재생 실패는 무시 */ }
+}
 /* 배경음악 보관함: IndexedDB에 저장해서 다음 실행에도 유지 */
 let bgmSelectedId = null;
 
@@ -1364,6 +1381,7 @@ $('exportBtn').onclick = async () => {
     a.click();
     $('exportOverlay').classList.remove('on');
     exporting = false;
+    playDoneSound();
     vid.muted = $('muteChk').checked;
     if (ext === 'webm') {
       alert('저장 완료! (webm 형식)\n쿠팡 업로드에 mp4가 필요하면 크롬 최신 버전을 사용하면 mp4로 저장됩니다.');
@@ -2373,6 +2391,7 @@ $('aiBtn').onclick = async () => {
     refreshList();
     const skipped = finals.length - translated.length;
     aiStatus(`완료! 자막 ${translated.length}개 번역 적용` + (skipped ? ` (${skipped}개는 가리개만)` : ''));
+    playDoneSound();
     alert(`자동 번역 완료!\n\n자막 ${translated.length}개 구간에 가리개+한글 텍스트를 추가했습니다.`
       + (skipped ? `\n읽지 못한 ${skipped}개 구간은 가리개만 넣었습니다. (필요하면 텍스트 도구로 글자 추가)` : '')
       + `\n\n· 크기·색·위치·불투명도는 "🎨 자막 일괄 스타일"에서 한 번에 바꿀 수 있습니다.\n· 글자 내용은 "추가된 항목"에서 항목별로 수정하세요.`);
